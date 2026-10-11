@@ -1,0 +1,58 @@
+#pragma once
+// Private OS layer. Implemented once per OS: Platform_mac.mm (Cocoa), Platform_win.cpp (Win32).
+// All coordinates are logical px. Screen space: origin top-left of the primary display, y down.
+#include <cstdint>
+#include <string>
+#include <vector>
+#include "dawn/webgpu_cpp.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkSize.h"
+#include "terracotta2/Core/Application.hpp"
+#include "terracotta2/UI/Widget.hpp"
+
+namespace Terracotta2::platform {
+
+struct NativeWindow; // opaque, per OS
+
+// Implemented by Window::Impl; the platform calls these from the event pump.
+struct WindowEvents {
+    virtual ~WindowEvents() = default;
+    virtual void onResize() = 0;       // content size or DPI scale changed
+    virtual void onRedraw() = 0;       // OS wants content now (e.g. during macOS live resize)
+    virtual void onMouseMove(float x, float y) = 0;
+    virtual void onMouseButton(float x, float y, MouseButton button, bool down, int mods) = 0;
+    virtual void onMouseLeave() = 0;
+    virtual void onScroll(float dx, float dy) = 0; // logical px; dy > 0 = scroll up
+    virtual void onKey(Key key, KeyAction action, int mods) = 0;
+    virtual void onChar(uint32_t codepoint) = 0;
+    virtual void onCloseRequest() = 0; // OS close button; the window is NOT destroyed by the platform
+};
+
+void init(); // once, from Application(): app object, menu (Cmd+Q), DPI awareness, window class
+void shutdown();
+
+// `owner`: main window for floating windows, else null. Floating windows use ordinary z-order.
+NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeWindow* owner);
+void destroyWindow(NativeWindow* w);
+wgpu::Surface createSurface(const wgpu::Instance& instance, NativeWindow* w);
+
+SkISize framebufferSize(NativeWindow* w); // device px
+SkSize logicalSize(NativeWindow* w);
+float contentScale(NativeWindow* w);
+SkPoint contentScreenPos(NativeWindow* w); // top-left of the content area
+void setContentScreenPos(NativeWindow* w, SkPoint p);
+void setTitle(NativeWindow* w, const std::string& title);
+void raise(NativeWindow* w);
+void setCursor(NativeWindow* w, Cursor c);
+std::vector<NativeWindow*> windowsFrontToBack(); // this app's windows only
+
+// Event pump. waitEvents blocks until at least one event (or wake()) then drains the queue.
+void waitEvents();
+void pollEvents();
+void wake(); // thread-safe
+
+std::string clipboard();
+void setClipboard(const std::string& text);
+
+} // namespace Terracotta2::platform
