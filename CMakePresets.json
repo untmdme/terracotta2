@@ -4,11 +4,8 @@
     {
       "name": "base",
       "hidden": true,
-      "generator": "Unix Makefiles",
       "cacheVariables": {
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
-        "VCPKG_TARGET_TRIPLET": "arm64-osx-release",
-        "VCPKG_HOST_TRIPLET": "arm64-osx-release"
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
       }
     },
     {
@@ -18,8 +15,7 @@
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O0 -g",
-        "CMAKE_OBJCXX_FLAGS_RELWITHDEBINFO": "-O0 -g"
+        "TC2_UNOPTIMIZED": "ON"
       }
     },
     {
@@ -31,7 +27,7 @@
     }
   ],
   "buildPresets": [
-    { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "debug", "configurePreset": "debug", "configuration": "RelWithDebInfo" },
+    { "name": "release", "configurePreset": "release", "configuration": "Release" }
   ]
 }

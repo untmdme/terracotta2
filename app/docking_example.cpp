@@ -43,6 +43,7 @@
 #include "include/core/SkRRect.h"
 #include "include/effects/SkGradient.h"
 #include <algorithm>
+#include <numbers>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -325,7 +326,7 @@ public:
         c->drawArc(oval, kStart, kSweep, false, p);
         p.setColor(m_accent); // value
         c->drawArc(oval, kStart, kSweep * m_value, false, p);
-        float a = (kStart + kSweep * m_value) * float(M_PI) / 180;
+        float a = (kStart + kSweep * m_value) * std::numbers::pi_v<float> / 180;
         p.setStrokeWidth(2.5f);
         p.setColor(SK_ColorWHITE); // pointer
         c->drawLine(mid.x() + std::cos(a) * (r - 14), mid.y() + std::sin(a) * (r - 14),
@@ -552,7 +553,7 @@ public:
                            const int steps = std::max(2, int(r.width() / 2));
                            for (int i = 0; i <= steps; ++i) {
                                float t = float(i) / steps, y = 0;
-                               for (int k = 1; k <= m_harmonics; ++k) y += std::sin(2 * float(M_PI) * 3 * k * t) / float(k);
+                               for (int k = 1; k <= m_harmonics; ++k) y += std::sin(2 * std::numbers::pi_v<float> * 3 * k * t) / float(k);
                                SkPoint pt{r.left() + t * r.width(), r.centerY() - y * r.height() * 0.22f};
                                i ? path.lineTo(pt) : path.moveTo(pt);
                            }

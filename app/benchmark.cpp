@@ -15,7 +15,13 @@
 #include <terracotta2/UI/Container.hpp>
 #include <terracotta2/UI/Controls.hpp>
 
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#include <psapi.h>
+#else
 #include <mach/mach.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -37,10 +43,16 @@ namespace {
 double msSince(Clock::time_point t) { return std::chrono::duration<double, std::milli>(Clock::now() - t).count(); }
 
 double residentMB() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0;
+    return pmc.WorkingSetSize / (1024.0 * 1024.0);
+#else
     mach_task_basic_info info;
     mach_msg_type_number_t n = MACH_TASK_BASIC_INFO_COUNT;
     if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &n) != KERN_SUCCESS) return 0;
     return info.resident_size / (1024.0 * 1024.0);
+#endif
 }
 
 struct Series {

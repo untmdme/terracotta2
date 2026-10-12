@@ -5,12 +5,15 @@ cmake_minimum_required(VERSION 3.30)
 set(TC2_VCPKG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg")
 if(NOT EXISTS "${TC2_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
     message(STATUS "Fetching vcpkg submodule")
-    execute_process(COMMAND git submodule update --init vcpkg
+    # Also search Git for Windows' install locations, so git need not be on PATH.
+    find_program(TC2_GIT git REQUIRED
+        HINTS "$ENV{ProgramFiles}/Git/cmd" "$ENV{ProgramW6432}/Git/cmd" "$ENV{LOCALAPPDATA}/Programs/Git/cmd")
+    execute_process(COMMAND "${TC2_GIT}" submodule update --init vcpkg
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" COMMAND_ERROR_IS_FATAL ANY)
 endif()
 if(CMAKE_HOST_WIN32)
     set(TC2_VCPKG_EXE "${TC2_VCPKG_ROOT}/vcpkg.exe")
-    set(TC2_VCPKxG_BOOTSTRAP "${TC2_VCPKG_ROOT}/bootstrap-vcpkg.bat")
+    set(TC2_VCPKG_BOOTSTRAP "${TC2_VCPKG_ROOT}/bootstrap-vcpkg.bat")
 else()
     set(TC2_VCPKG_EXE "${TC2_VCPKG_ROOT}/vcpkg")
     set(TC2_VCPKG_BOOTSTRAP "${TC2_VCPKG_ROOT}/bootstrap-vcpkg.sh")
@@ -21,6 +24,32 @@ if(NOT EXISTS "${TC2_VCPKG_EXE}")
         WORKING_DIRECTORY "${TC2_VCPKG_ROOT}" COMMAND_ERROR_IS_FATAL ANY)
 endif()
 set(CMAKE_TOOLCHAIN_FILE "${TC2_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "")
+
+# Static, release-only triplets for the host (a DLL Skia drops its SVG module and leaves
+# skparagraph symbols unexported); override with -DVCPKG_TARGET_TRIPLET=...
+if(CMAKE_HOST_WIN32)
+    if("$ENV{PROCESSOR_ARCHITECTURE}" STREQUAL "ARM64")
+        set(TC2_DEFAULT_TRIPLET arm64-windows-static-md)
+    else()
+        set(TC2_DEFAULT_TRIPLET x64-windows-static-md-release)
+    endif()
+else()
+    set(TC2_DEFAULT_TRIPLET arm64-osx-release)
+endif()
+set(VCPKG_TARGET_TRIPLET "${TC2_DEFAULT_TRIPLET}" CACHE STRING "")
+set(VCPKG_HOST_TRIPLET "${TC2_DEFAULT_TRIPLET}" CACHE STRING "")
+
+# The debug preset turns this on: RelWithDebInfo built unoptimized with debug info and asserts.
+option(TC2_UNOPTIMIZED "Build RelWithDebInfo without optimization" OFF)
+if(TC2_UNOPTIMIZED)
+    if(CMAKE_HOST_WIN32)
+        set(TC2_UNOPT_FLAGS "/Od /Ob0 /Zi")
+    else()
+        set(TC2_UNOPT_FLAGS "-O0 -g")
+    endif()
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${TC2_UNOPT_FLAGS}" CACHE STRING "" FORCE)
+    set(CMAKE_OBJCXX_FLAGS_RELWITHDEBINFO "${TC2_UNOPT_FLAGS}" CACHE STRING "" FORCE)
+endif()
 
 project(Terracotta2Workspace LANGUAGES CXX)
 if(APPLE)
