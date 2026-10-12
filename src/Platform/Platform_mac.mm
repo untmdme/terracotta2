@@ -407,6 +407,8 @@ void wake() {
     [NSApp postEvent:e atStart:NO];
 }
 
+int modifiers() { return modsOf(NSEvent.modifierFlags); }
+
 std::string clipboard() {
     @autoreleasepool {
         NSString* s = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];

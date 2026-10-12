@@ -431,6 +431,8 @@ void wake() {
     PostThreadMessageW(g_mainThread, WM_NULL, 0, 0);
 }
 
+int modifiers() { return currentMods(); }
+
 std::string clipboard() {
     std::string out;
     if (!OpenClipboard(nullptr)) return out;

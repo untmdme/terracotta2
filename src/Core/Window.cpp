@@ -30,6 +30,9 @@
 
 namespace Terracotta2 {
 
+// DrawCounter.cpp: a canvas forwarding to `target` that counts draws into *count.
+std::unique_ptr<SkCanvas> makeCountingCanvas(SkCanvas* target, int* count);
+
 namespace {
 
 std::vector<Widget*> chainOf(Widget* w) {
@@ -39,7 +42,16 @@ std::vector<Widget*> chainOf(Widget* w) {
 }
 bool contains(const std::vector<Widget*>& v, Widget* w) { return std::find(v.begin(), v.end(), w) != v.end(); }
 
+// The event as `w` sees it: in w's coordinate space (differs from the window only under a childTransform).
+MouseEvent localTo(const Widget* w, MouseEvent ev) {
+    const SkPoint p = w->mapFromWindow({ev.x, ev.y});
+    ev.x = p.x();
+    ev.y = p.y();
+    return ev;
+}
+
 constexpr wgpu::TextureFormat kFormat = wgpu::TextureFormat::BGRA8Unorm;
+
 
 } // namespace
 
@@ -65,6 +77,7 @@ struct Window::Impl : platform::WindowEvents {
     bool showDamage = false;
     bool tearingDown = false;
     std::function<void()> onClose;
+    std::function<void()> onFrame;
 
     std::vector<Widget*> animating;
     std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
@@ -263,6 +276,7 @@ bool Window::isFloating() const { return m_impl->floating; }
 void Window::setTitle(const std::string& title) { platform::setTitle(m_impl->native, title); }
 void Window::raise() { platform::raise(m_impl->native); }
 void Window::setOnClose(std::function<void()> handler) { m_impl->onClose = std::move(handler); }
+void Window::setOnFrame(std::function<void()> handler) { m_impl->onFrame = std::move(handler); }
 void Window::requestClose() { m_impl->onCloseRequest(); }
 
 SkPoint Window::toScreen(SkPoint local) const {
@@ -324,9 +338,9 @@ Theme* Window::theme() const { return m_impl->theme; }
 void Window::setHighlight(Widget* w) {
     Impl& d = *m_impl;
     if (w == d.highlight) return;
-    if (d.highlight) addDamage(d.highlight->getBounds());
+    if (d.highlight) addDamage(d.highlight->mapToWindow(d.highlight->getBounds()));
     d.highlight = w;
-    if (w) addDamage(w->getBounds());
+    if (w) addDamage(w->mapToWindow(w->getBounds()));
 }
 Widget* Window::highlight() const { return m_impl->highlight; }
 
@@ -399,7 +413,8 @@ bool Window::renderFrame() {
     }
 
     auto tPaint = std::chrono::steady_clock::now();
-    SkCanvas* canvas = d.skSurface->getCanvas();
+    const auto counting = makeCountingCanvas(d.skSurface->getCanvas(), &stats.drawCalls);
+    SkCanvas* canvas = counting.get();
     canvas->save();
     canvas->scale(s, s);
     // Each rect on its own: overlapping rects repaint their overlap twice, with identical result.
@@ -410,11 +425,12 @@ bool Window::renderFrame() {
         d.root->paint(canvas, r, stats.widgetsPainted);
         if (d.highlight) { // inside its bounds, so its own damage covers it
             SkPaint p;
+            const SkRect hb = d.highlight->mapToWindow(d.highlight->getBounds());
             p.setColor(SkColorSetARGB(40, 255, 0, 255));
-            canvas->drawRect(d.highlight->getBounds(), p);
+            canvas->drawRect(hb, p);
             p.setStyle(SkPaint::kStroke_Style);
             p.setColor(SkColorSetRGB(255, 0, 255));
-            canvas->drawRect(d.highlight->getBounds().makeInset(0.5f, 0.5f), p);
+            canvas->drawRect(hb.makeInset(0.5f, 0.5f), p);
         }
         canvas->restore();
     }
@@ -472,7 +488,12 @@ bool Window::renderFrame() {
     stats.cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     stats.frameIndex++;
     d.stats = stats;
-    return ok();
+    const bool presented = ok();
+    if (presented && d.onFrame) {
+        auto f = d.onFrame; // the handler may replace itself
+        f();
+    }
+    return presented;
 }
 
 // ---- input ----
@@ -489,12 +510,12 @@ void Window::injectMouseMove(float x, float y) {
     if (auto hook = A.mouseHook; hook && hook(this, x, y, false)) return; // copy: it may clear itself
     MouseEvent ev{x, y, MouseButton::Left, 0};
     if (d.captured) {
-        d.captured->onMouseMove(ev);
+        d.captured->onMouseMove(localTo(d.captured, ev));
     } else {
         d.updateHover(x, y);
         for (Widget* w = d.hovered; w;) {
             Widget* next = w->parent();
-            if (w->onMouseMove(ev)) break;
+            if (w->onMouseMove(localTo(w, ev))) break;
             w = next;
         }
     }
@@ -527,7 +548,7 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         setFocus(f);
         for (Widget* w = target; w;) {
             Widget* next = w->parent();
-            if (w->onMouseDown(ev)) {
+            if (w->onMouseDown(localTo(w, ev))) {
                 d.captured = w;
                 break;
             }
@@ -537,11 +558,11 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         Widget* c = d.captured;
         d.captured = nullptr;
         if (c) {
-            c->onMouseUp(ev);
+            c->onMouseUp(localTo(c, ev));
         } else {
             for (Widget* w = d.hovered; w;) {
                 Widget* next = w->parent();
-                if (w->onMouseUp(ev)) break;
+                if (w->onMouseUp(localTo(w, ev))) break;
                 w = next;
             }
         }
@@ -553,7 +574,7 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         while (w && !w->isAncestorOf(p)) w = w->parent();
         while (w) {
             Widget* next = w->parent();
-            if (w->onClick(ev)) break;
+            if (w->onClick(localTo(w, ev))) break;
             w = next;
         }
         d.updateHover(x, y);

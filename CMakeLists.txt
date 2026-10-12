@@ -68,6 +68,8 @@ find_package(Dawn CONFIG REQUIRED)
 # Platform_win.cpp is #ifdef _WIN32, so it compiles to nothing elsewhere.
 file(GLOB_RECURSE TC2_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 add_library(Terracotta2 ${TC2_SOURCES})
+# Skia is built without RTTI; a class deriving from a Skia canvas must be too.
+set_source_files_properties(src/Core/DrawCounter.cpp PROPERTIES COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/GR-,-fno-rtti>")
 if(APPLE)
     target_sources(Terracotta2 PRIVATE src/Platform/Platform_mac.mm)
     set_source_files_properties(src/Platform/Platform_mac.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")

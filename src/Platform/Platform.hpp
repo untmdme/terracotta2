@@ -52,6 +52,8 @@ void waitEvents();
 void pollEvents();
 void wake(); // thread-safe
 
+int modifiers(); // Mod flags currently held
+
 std::string clipboard();
 void setClipboard(const std::string& text);
 

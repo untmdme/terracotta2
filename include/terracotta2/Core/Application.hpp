@@ -58,6 +58,8 @@ public:
     // (press = true) in window coords before the widgets do; return true to swallow it.
     void setMouseHook(std::function<bool(Window*, float x, float y, bool press)> hook);
 
+    int modifiers() const; // Mod flags held right now (e.g. Ctrl+scroll in onScroll)
+
     std::string clipboard() const;
     void setClipboard(const std::string& text);
 

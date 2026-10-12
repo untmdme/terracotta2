@@ -16,6 +16,7 @@ struct FrameStats {
     int damageRects = 0;                 // rects repainted this frame
     float damageArea = 0.0f;             // sum of their areas, logical px^2 (overlaps counted twice)
     int widgetsPainted = 0;
+    int drawCalls = 0;                   // SkCanvas draws recorded (Graphite batches them into fewer GPU draws)
     bool layoutRan = false;
     double cpuMs = 0.0;                  // whole renderFrame() on the CPU
     double layoutMs = 0.0;               // Yoga + applyLayout
@@ -59,6 +60,9 @@ public:
     // Called when the user clicks the OS close button, before the window is destroyed.
     // Default (no handler): the window closes.
     void setOnClose(std::function<void()> handler);
+    // Called after every presented frame (lastFrameStats() is that frame), e.g. for an FPS readout.
+    // Changing widgets here schedules another frame: throttle it, or the window never goes idle.
+    void setOnFrame(std::function<void()> handler);
 
     // ---- services for widgets ----
     void addDamage(const SkRect& logicalRect);

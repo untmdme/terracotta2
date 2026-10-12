@@ -87,9 +87,16 @@ void Widget::markPaintDirty() {
 
 void Widget::invalidateRect(const SkRect& r) {
     if (r.isEmpty()) return;
+    SkRect w = r;
     Widget* root = this;
-    while (root->m_parent) root = root->m_parent;
-    if (root->m_host) root->m_host->addDamage(r);
+    for (; root->m_parent; root = root->m_parent) {
+        const Widget* p = root->m_parent;
+        if (!p->m_space) continue;
+        const SkPoint a = p->fromChildSpace({w.left(), w.top()}), b = p->fromChildSpace({w.right(), w.bottom()});
+        w = SkRect::MakeLTRB(a.x(), a.y(), b.x(), b.y());
+        if (!w.intersect(p->m_bounds)) return; // children of a transformed widget are clipped to it
+    }
+    if (root->m_host) root->m_host->addDamage(w);
 }
 
 // ---- style ----
@@ -125,6 +132,35 @@ void Widget::setFrame(const SkRect& r) {
     else m_parent->relayoutChildren();         // pure move: re-walk, no Yoga
 }
 
+// ---- child transform ----
+
+void Widget::setChildTransform(float scale, SkPoint origin) {
+    if (m_space && scale == m_scale && origin == m_origin) return;
+    const bool first = !m_space;
+    m_space = true;
+    m_scale = scale;
+    m_origin = origin;
+    if (first) relayoutChildren(); // children's bounds move into the new space
+    markPaintDirty();
+}
+
+SkPoint Widget::mapToWindow(SkPoint p) const {
+    for (const Widget* a = m_parent; a; a = a->m_parent)
+        if (a->m_space) p = a->fromChildSpace(p);
+    return p;
+}
+
+SkRect Widget::mapToWindow(const SkRect& r) const {
+    const SkPoint a = mapToWindow(SkPoint{r.left(), r.top()}), b = mapToWindow(SkPoint{r.right(), r.bottom()});
+    return SkRect::MakeLTRB(a.x(), a.y(), b.x(), b.y());
+}
+
+SkPoint Widget::mapFromWindow(SkPoint p) const {
+    if (!m_parent) return p;
+    p = m_parent->mapFromWindow(p); // now in the parent's own space
+    return m_parent->m_space ? m_parent->toChildSpace(p) : p;
+}
+
 // ---- animation ----
 
 void Widget::animate(float durationSec, std::function<void(float)> onUpdate, std::function<void()> onComplete,
@@ -137,8 +173,9 @@ void Widget::animate(float durationSec, std::function<void(float)> onUpdate, std
 
 Widget* Widget::hitTest(float x, float y) {
     if (!m_visible || !m_bounds.contains(x, y)) return nullptr;
+    const SkPoint c = m_space ? toChildSpace({x, y}) : SkPoint{x, y};
     for (auto it = m_children.rbegin(); it != m_children.rend(); ++it)
-        if (Widget* h = (*it)->hitTest(x, y)) return h;
+        if (Widget* h = (*it)->hitTest(c.x(), c.y())) return h;
     return this;
 }
 
@@ -152,7 +189,18 @@ void Widget::paint(SkCanvas* canvas, const SkRect& damage, int& count) {
         canvas->save();
         canvas->clipRect(m_bounds);
     }
-    for (auto& c : m_children) c->paint(canvas, damage, count);
+    if (m_space) {
+        canvas->save();
+        canvas->translate(m_bounds.left(), m_bounds.top());
+        canvas->scale(m_scale, m_scale);
+        canvas->translate(-m_origin.x(), -m_origin.y());
+        const SkPoint a = toChildSpace({damage.left(), damage.top()}), b = toChildSpace({damage.right(), damage.bottom()});
+        const SkRect local = SkRect::MakeLTRB(a.x(), a.y(), b.x(), b.y());
+        for (auto& c : m_children) c->paint(canvas, local, count);
+        canvas->restore();
+    } else {
+        for (auto& c : m_children) c->paint(canvas, damage, count);
+    }
     if (m_clip_children) canvas->restore();
     onDrawOver(canvas);
 }
@@ -182,16 +230,17 @@ void Widget::applyLayout(float parentX, float parentY) {
         recurse = recurse || m_force_child_layout || m_layout_dirty; // onLayout may have flagged work
     }
     if (recurse) {
-        const SkPoint off = childOffset(); // after onLayout(): it may re-clamp the offset
+        SkPoint off = childOffset(); // after onLayout(): it may re-clamp the offset
+        if (!m_space) off += SkVector{x, y}; // a child space starts at 0, 0
         for (auto& c : m_children) {
             if (m_manual) {
                 if (!c->m_visible) continue;
                 // Each child is its own Yoga root sized by its frame; only dirty ones recompute.
                 if (c->m_layout_dirty)
                     YGNodeCalculateLayout(c->m_yg_node, c->m_frame.width(), c->m_frame.height(), YGDirectionLTR);
-                c->applyLayout(x + off.fX + c->m_frame.fLeft, y + off.fY + c->m_frame.fTop);
+                c->applyLayout(off.fX + c->m_frame.fLeft, off.fY + c->m_frame.fTop);
             } else {
-                c->applyLayout(x + off.fX, y + off.fY);
+                c->applyLayout(off.fX, off.fY);
             }
         }
     }

@@ -224,6 +224,7 @@ bool Application::isGlobalDragActive() const { return m_impl->dragActive; }
 
 void Application::setMouseHook(std::function<bool(Window*, float, float, bool)> hook) { m_impl->mouseHook = std::move(hook); }
 
+int Application::modifiers() const { return platform::modifiers(); }
 std::string Application::clipboard() const { return platform::clipboard(); }
 void Application::setClipboard(const std::string& text) { platform::setClipboard(text); }
 

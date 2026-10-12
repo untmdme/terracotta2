@@ -30,7 +30,8 @@ enum class Key {
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
 };
 
-// Coordinates are window-local, logical (pre-DPI-scale) pixels.
+// Coordinates are logical (pre-DPI-scale) pixels in the receiving widget's space: window-local
+// unless an ancestor has a childTransform (then the space its bounds are in, see mapFromWindow).
 struct MouseEvent {
     float x = 0, y = 0;
     MouseButton button = MouseButton::Left;
@@ -152,6 +153,23 @@ public:
     void setFrame(const SkRect& rectInParent); // only for children of a manual-layout parent
     const SkRect& frame() const { return m_frame; }
 
+    // ---- child transform (zoomable canvases) ----
+    // Gives the children their own coordinate space, drawn scaled by `scale` with the child-space
+    // point `origin` at this widget's top-left:  window = bounds.topLeft + scale * (child - origin).
+    // Children's bounds, mouse events and damage rects are all in that space, so widgets inside need
+    // no changes. Changing the transform repaints this widget but never re-runs layout, so zoom and
+    // pan are cheap. Hit testing and damage are clipped to this widget. Use for node editors, maps,
+    // zoomable documents. (childOffset() still applies, inside the space.)
+    template <class Self> Self& childTransform(this Self& s, float scale, SkPoint origin) { s.setChildTransform(scale, origin); return s; }
+    bool hasChildSpace() const { return m_space; }
+    float childScale() const { return m_scale; }
+    SkPoint childOrigin() const { return m_origin; }
+    // This widget's coordinates (its bounds and events) <-> window coordinates. Identity unless an
+    // ancestor has a childTransform. Use mapToWindow(getBounds()) to place a popup next to a widget.
+    SkPoint mapToWindow(SkPoint p) const;
+    SkRect mapToWindow(const SkRect& r) const;
+    SkPoint mapFromWindow(SkPoint p) const;
+
     // ---- animation (one active tween per widget; starting a new one replaces it) ----
     // Safe to call before the widget is attached: it starts ticking once added to a window.
     // Loop by calling animate() again from onComplete.
@@ -200,6 +218,7 @@ public:
 protected:
     void setVisible(bool visible);
     void setManualLayout(bool on);
+    void setChildTransform(float scale, SkPoint origin);
     // Offset applied to all children's absolute positions (e.g. ScrollView: {0, -scrollY}).
     virtual SkPoint childOffset() const { return {0, 0}; }
     // Call when childOffset() changes: the next applyLayout re-walks this widget's children
@@ -221,6 +240,11 @@ private:
     bool m_force_child_layout = false;
     bool m_manual = false;                   // children placed via setFrame, not Yoga
     SkRect m_frame = SkRect::MakeEmpty();    // set by a manual-layout parent
+    bool m_space = false;                    // children live in their own (scaled) coordinate space
+    float m_scale = 1.0f;
+    SkPoint m_origin{0, 0};
+    SkPoint toChildSpace(SkPoint p) const { return {(p.x() - m_bounds.left()) / m_scale + m_origin.x(), (p.y() - m_bounds.top()) / m_scale + m_origin.y()}; }
+    SkPoint fromChildSpace(SkPoint p) const { return {m_bounds.left() + (p.x() - m_origin.x()) * m_scale, m_bounds.top() + (p.y() - m_origin.y()) * m_scale}; }
 };
 
 } // namespace Terracotta2
