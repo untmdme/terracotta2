@@ -5,6 +5,7 @@
 #include <utility>
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
+#include "include/core/SkFontMgr.h"
 #include "modules/skparagraph/include/FontCollection.h"
 #include "modules/skparagraph/include/Paragraph.h"
 
@@ -15,6 +16,7 @@ using skia::textlayout::Paragraph;
 using skia::textlayout::RectHeightStyle;
 using skia::textlayout::RectWidthStyle;
 
+sk_sp<SkFontMgr> platformFontMgr(); // system fonts (DirectWrite / CoreText)
 sk_sp<FontCollection> fonts();
 // Shaped single-style text; call layout(width) on the result before painting it.
 std::unique_ptr<Paragraph> makeParagraph(const std::string& text, float fontSize, SkColor color,

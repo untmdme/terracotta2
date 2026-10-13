@@ -36,6 +36,9 @@ struct NativeWindow {
     float scale = 1.0f;          // GetDpiForWindow / 96, kept current by WM_DPICHANGED
     bool ready = false;          // events are only forwarded once createWindow() has returned
     bool tracking = false;       // TrackMouseEvent(TME_LEAVE) armed
+    bool ncTracking = false;     // TrackMouseEvent(TME_LEAVE | TME_NONCLIENT) armed
+    bool overMaximize = false;   // custom titlebar: the pointer is over the maximize button (HTMAXBUTTON)
+    bool customTitlebar = false; // no caption: the client area reaches the window top (WM_NCCALCSIZE)
     int buttons = 0;             // bitmask of held MouseButtons (for SetCapture / ReleaseCapture)
     wchar_t highSurrogate = 0;   // pending first half of a WM_CHAR surrogate pair
     Cursor cursor = Cursor::Arrow;
@@ -115,7 +118,26 @@ HCURSOR cursorHandle(Cursor c) {
 
 inline bool live(const NativeWindow* w) { return w && w->ev && w->ready; }
 
-void mouseButton(NativeWindow* w, MouseButton b, bool down, LPARAM lp) {
+// Thickness of the (invisible) resize frame, which a maximized window hangs past the screen edge by.
+int frameThickness(HWND hwnd) {
+    const UINT dpi = GetDpiForWindow(hwnd);
+    return GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+}
+
+POINT toClient(HWND hwnd, LPARAM screenLp) {
+    POINT p{GET_X_LPARAM(screenLp), GET_Y_LPARAM(screenLp)};
+    ScreenToClient(hwnd, &p);
+    return p;
+}
+
+// What WM_NCHITTEST answers for where the pointer is now (HTNOWHERE when it is over another window).
+LRESULT hitAtCursor(HWND hwnd) {
+    POINT p;
+    if (!GetCursorPos(&p) || WindowFromPoint(p) != hwnd) return HTNOWHERE;
+    return SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y));
+}
+
+void mouseButton(NativeWindow* w,MouseButton b, bool down, LPARAM lp) {
     const int bit = 1 << (int)b;
     if (down) {
         if (w->buttons == 0) SetCapture(w->hwnd);
@@ -166,6 +188,72 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_ERASEBKGND:
             return 1;
 
+        case WM_NCCALCSIZE: // custom titlebar: keep the side/bottom frame, drop the caption
+            if (w->customTitlebar && wp) {
+                auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+                const LONG top = p->rgrc[0].top;
+                DefWindowProcW(hwnd, msg, wp, lp);
+                p->rgrc[0].top = top + (IsZoomed(hwnd) ? frameThickness(hwnd) : 0);
+                return 0;
+            }
+            break;
+
+        case WM_NCHITTEST: // custom titlebar: top resize edge, then the app decides what drags the window
+            if (w->customTitlebar) {
+                const LRESULT hit = DefWindowProcW(hwnd, msg, wp, lp); // side and bottom resize borders
+                if (hit != HTCLIENT) return hit;
+                POINT p{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                ScreenToClient(hwnd, &p);
+                if (!IsZoomed(hwnd) && p.y < frameThickness(hwnd)) return HTTOP;
+                if (live(w) && w->ev->isMaximizeButton(p.x / w->scale, p.y / w->scale)) return HTMAXBUTTON; // Snap Layouts flyout
+                if (live(w) && w->ev->isCaption(p.x / w->scale, p.y / w->scale)) return HTCAPTION; // native drag, snap, double-click
+                return HTCLIENT;
+            }
+            break;
+
+        // Over HTMAXBUTTON the pointer is non-client: hand moves and left presses to the widgets as
+        // client input. DefWindowProc must not see the press, or it runs its own legacy button.
+        case WM_NCMOUSEMOVE:
+            if (w->customTitlebar) {
+                if (wp == HTMAXBUTTON) {
+                    if (!w->ncTracking) {
+                        TRACKMOUSEEVENT t{sizeof(t), TME_LEAVE | TME_NONCLIENT, hwnd, 0};
+                        if (TrackMouseEvent(&t)) w->ncTracking = true;
+                    }
+                    w->overMaximize = true;
+                    const POINT p = toClient(hwnd, lp);
+                    if (live(w)) w->ev->onMouseMove(p.x / w->scale, p.y / w->scale);
+                    return 0;
+                }
+                if (w->overMaximize) { // onto the frame or a caption area
+                    w->overMaximize = false;
+                    if (live(w)) w->ev->onMouseLeave();
+                }
+            }
+            break;
+
+        case WM_NCMOUSELEAVE:
+            w->ncTracking = false;
+            if (w->overMaximize && hitAtCursor(hwnd) != HTMAXBUTTON) {
+                w->overMaximize = false;
+                if (hitAtCursor(hwnd) != HTCLIENT && live(w)) w->ev->onMouseLeave(); // into the client: WM_MOUSEMOVE re-hovers
+            }
+            break;
+
+        case WM_NCLBUTTONDOWN:
+        case WM_NCLBUTTONDBLCLK:
+        case WM_NCLBUTTONUP:
+            if (w->customTitlebar && wp == HTMAXBUTTON) {
+                const POINT p = toClient(hwnd, lp);
+                mouseButton(w, MouseButton::Left, msg != WM_NCLBUTTONUP, MAKELPARAM(p.x, p.y)); // capture: the release comes as WM_LBUTTONUP
+                return 0;
+            }
+            break;
+
+        case WM_ACTIVATE:
+            if (live(w)) w->ev->onActivate(LOWORD(wp) != WA_INACTIVE);
+            break;
+
         case WM_MOUSEACTIVATE: // popups take clicks without becoming the active window
             if (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_NOACTIVATE) return MA_NOACTIVATE;
             break;
@@ -188,7 +276,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MOUSELEAVE:
             w->tracking = false;
-            if (live(w)) w->ev->onMouseLeave();
+            if (live(w) && !(w->customTitlebar && hitAtCursor(hwnd) == HTMAXBUTTON)) w->ev->onMouseLeave(); // WM_NCMOUSEMOVE re-hovers
             return 0;
 
         case WM_CAPTURECHANGED: // capture stolen (alt-tab, modal dialog...): forget held buttons
@@ -269,6 +357,7 @@ void placeClient(NativeWindow* w, float x, float y, int cw, int ch) {
         RECT r{0, 0, (LONG)std::lround(cw * w->scale), (LONG)std::lround(ch * w->scale)};
         AdjustWindowRectExForDpi(&r, (DWORD)GetWindowLongPtrW(w->hwnd, GWL_STYLE), FALSE,
                                  (DWORD)GetWindowLongPtrW(w->hwnd, GWL_EXSTYLE), dpi);
+        if (w->customTitlebar) r.top = 0; // no caption above the client area
         const int ow = r.right - r.left, oh = r.bottom - r.top;
         int px, py;
         if (std::isnan(x) || std::isnan(y)) {
@@ -281,7 +370,7 @@ void placeClient(NativeWindow* w, float x, float y, int cw, int ch) {
             px = (int)std::lround(x * w->scale) + r.left;
             py = (int)std::lround(y * w->scale) + r.top;
         }
-        SetWindowPos(w->hwnd, nullptr, px, py, ow, oh, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(w->hwnd, nullptr, px, py, ow, oh, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED); // re-runs WM_NCCALCSIZE
         if (GetDpiForWindow(w->hwnd) == dpi) break;
     }
 }
@@ -337,6 +426,7 @@ NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeW
         w->ready = true;
         return w;
     }
+    w->customTitlebar = desc.customTitlebar; // before CreateWindowExW: WM_NCCALCSIZE arrives during it
     // Floating windows are unowned with a taskbar entry: ordinary z-order (they can go behind
     // the main window) and still reachable via the taskbar / Alt+Tab.
     const DWORD ex = 0;
@@ -448,6 +538,11 @@ SkRect workArea(SkPoint screen) {
 }
 
 void setOnDeactivate(std::function<void()> fn) { g_onDeactivate = std::move(fn); }
+
+void startWindowDrag(NativeWindow*) {} // caption presses never reach the client area (WM_NCHITTEST)
+void minimize(NativeWindow* w) { ShowWindow(w->hwnd, SW_MINIMIZE); }
+void toggleMaximize(NativeWindow* w) { ShowWindow(w->hwnd, IsZoomed(w->hwnd) ? SW_RESTORE : SW_MAXIMIZE); }
+bool isMaximized(NativeWindow* w) { return IsZoomed(w->hwnd); }
 
 void setTitle(NativeWindow* w, const std::string& title) {
     SetWindowTextW(w->hwnd, widen(title).c_str());

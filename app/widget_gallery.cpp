@@ -221,6 +221,19 @@ int main() {
             });
         });
 
+        // Custom title bar: a window that draws its own bar (see also custom_titlebar.cpp).
+        section(page, "Custom title bar", "WindowDesc{.customTitlebar = true} + TitleBar + WindowButtons. The bar drags the window; buttons in it stay clickable.")
+            .add<Button>("Open a window with a custom title bar").onClick([] {
+                Window* w = Application::get().createWindow({.title = "Custom title bar", .width = 420, .height = 220, .customTitlebar = true});
+                w->root()->add<TitleBar>().build([](TitleBar& bar) {
+                    bar.add<Label>("My tool window").weight(600).grow(1);
+                    bar.add<WindowButtons>();
+                });
+                w->root()->add<Panel>().grow(1).justify(Justify::Center).alignItems(Align::Center).build([](Panel& p) {
+                    p.add<Label>("Drag the bar above to move this window.").color(theme().textMuted);
+                });
+            }).alignSelf(Align::Start);
+
         // Editors bound to data that lives elsewhere: they read and write through get/set.
         static float amount = 42;
         static SkColor swatchColor = SkColorSetRGB(70, 130, 230);

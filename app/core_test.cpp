@@ -199,5 +199,30 @@ int main() {
     wait();
     CHECK(tipShown());
 
+    // Custom titlebar: presses on the bar's empty or plain parts go to the OS window drag, not to
+    // widgets; widgets that take input inside it (a button) still get them.
+    Button* goButton = nullptr;
+    struct PressCounter : Widget {
+        int presses = 0;
+        PressCounter() { size(40, 20); }
+        bool onMouseDown(const MouseEvent&) override { ++presses; return true; }
+    };
+    Window* bar = app.createWindow({.title = "titlebar", .width = 400, .height = 200, .customTitlebar = true});
+    PressCounter* plain = nullptr;
+    int clicked = 0;
+    bar->root()->add<TitleBar>().build([&](TitleBar& tb) {
+        plain = &tb.add<PressCounter>();
+        tb.add<Button>("Go").onClick([&] { ++clicked; }).ref(goButton);
+    });
+    bar->renderFrame();
+    auto click = [&](const SkRect& r) {
+        bar->injectMouseButton(r.centerX(), r.centerY(), MouseButton::Left, true);
+        bar->injectMouseButton(r.centerX(), r.centerY(), MouseButton::Left, false);
+    };
+    click(plain->bounds());
+    CHECK(plain->presses == 0); // window drag area
+    click(goButton->bounds());
+    CHECK(clicked == 1);
+
     std::printf("core_test: ok\n");
 }

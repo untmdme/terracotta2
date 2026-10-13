@@ -52,6 +52,10 @@ public:
     SkRect screenFrame() const;              // content area, screen logical px
     void setScreenPosition(SkPoint topLeft); // content-area top-left, screen logical px
     void raise();                            // bring to front
+    void minimize();
+    void toggleMaximize();                   // maximize (macOS: zoom), or restore
+    bool isMaximized() const;
+    bool isActive() const;                   // the active (key) window: custom titlebars dim when not
     void close() { app().closeWindow(this); }   // force close: skips the onClose handler
     void requestClose();                          // same as the OS close button: onClose handler, then close
     SkPoint toScreen(SkPoint local) const;

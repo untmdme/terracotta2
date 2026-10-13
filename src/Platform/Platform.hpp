@@ -28,6 +28,9 @@ struct WindowEvents {
     virtual void onKey(Key key, KeyAction action, int mods) = 0;
     virtual void onChar(uint32_t codepoint) = 0;
     virtual void onCloseRequest() = 0; // OS close button; the window is NOT destroyed by the platform
+    virtual bool isCaption(float, float) { return false; }        // custom titlebar: does this point drag the window?
+    virtual bool isMaximizeButton(float, float) { return false; } // custom titlebar: over WindowButtons' maximize (Snap Layouts)
+    virtual void onActivate(bool) {}                              // became / stopped being the active (key) window
 };
 
 void init(); // once, from Application(): app object, menu (Cmd+Q), DPI awareness, window class
@@ -40,6 +43,14 @@ void showPopup(NativeWindow* w);              // without activating it or taking
 void setContentSize(NativeWindow* w, SkSize logical);
 SkRect workArea(SkPoint screen);              // usable area (no menu bar / taskbar) of the display containing `screen`
 void setOnDeactivate(std::function<void()> fn); // the app stopped being the active app
+
+// Custom titlebars. startWindowDrag hands the current mouse press to the OS window drag (macOS; a
+// double-click zooms or minimizes per the system setting). On Windows caption drags never reach the
+// client area (WM_NCHITTEST answers HTCAPTION via isCaption), so it does nothing there.
+void startWindowDrag(NativeWindow* w);
+void minimize(NativeWindow* w);
+void toggleMaximize(NativeWindow* w);
+bool isMaximized(NativeWindow* w);
 void destroyWindow(NativeWindow* w);
 wgpu::Surface createSurface(const wgpu::Instance& instance, NativeWindow* w);
 

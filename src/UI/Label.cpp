@@ -1,6 +1,8 @@
 #include "terracotta2/UI/Label.hpp"
 #include "Text.hpp"
 #include "terracotta2/Core/Application.hpp"
+#include "terracotta2/Core/Window.hpp"
+#include "terracotta2/UI/TitleBar.hpp"
 #include "terracotta2/Theme/Theme.hpp"
 #include <algorithm>
 #include <cmath>
@@ -15,6 +17,18 @@ YGSize measureLabel(YGNodeConstRef node, float width, YGMeasureMode wm, float, Y
     auto* label = static_cast<Label*>(YGNodeGetContext(node));
     SkSize s = label->measure(wm == YGMeasureModeUndefined ? SK_ScalarInfinity : width);
     return {s.width(), s.height()};
+}
+
+// In the drag area of an inactive window's custom title bar (not inside a control there): drawn
+// dimmed, like a native window title.
+bool inInactiveTitle(const Widget* w) {
+    const Window* win = w->window();
+    if (!win || win->isActive()) return false;
+    for (const Widget* a = w->parent(); a; a = a->parent()) {
+        if (dynamic_cast<const TitleBar*>(a)) return true;
+        if (a->isFocusable() || a->cursor() != Cursor::Arrow) return false;
+    }
+    return false;
 }
 } // namespace
 
@@ -86,7 +100,10 @@ SkSize Label::measure(float maxWidth) {
 void Label::onDraw(SkCanvas* canvas) {
     Paragraph& p = paragraph(m_bounds.width());
     if (m_selAnchor != m_selEnd) paintSelection(canvas, p, m_text, m_selAnchor, m_selEnd, m_bounds.left(), m_bounds.top());
+    const bool dim = inInactiveTitle(this);
+    if (dim) canvas->saveLayerAlpha(&m_bounds, 102); // 40%, like the caption buttons
     p.paint(canvas, m_bounds.left(), m_bounds.top());
+    if (dim) canvas->restore();
 }
 
 Label& Label::selectable(bool on) {

@@ -15,11 +15,7 @@ struct WindowDesc {
     int width = 1280, height = 720;       // logical px (content area)
     float x = NAN, y = NAN;               // screen logical px of the content area; NAN = centered
     bool floating = false;                // undocked dock window (ordinary z-order; closing re-docks its tabs)
-    // Popup (menus, dropdown lists, tooltips): borderless, shadowed, above every window, never takes
-    // activation. x/y is the anchor's top-left and anchorHeight its height (a dropdown field, the
-    // cursor): the window sizes itself to its content on the first frame, goes just below the anchor
-    // (or above it when there is no room below), is kept on screen, and only then appears.
-    // width/height are ignored. Overlay creates these; apps rarely need to.
+    bool customTitlebar = false;
     bool popup = false;
     float anchorHeight = 0;
     Window* owner = nullptr;              // popup: the window it belongs to (null = main window)

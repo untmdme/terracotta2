@@ -7,6 +7,9 @@ target_link_libraries(Benchmark PRIVATE Terracotta2)
 add_executable(Hello_World hello_world.cpp)
 target_link_libraries(Hello_World PRIVATE Terracotta2)
 
+add_executable(Custom_Titlebar custom_titlebar.cpp)
+target_link_libraries(Custom_Titlebar PRIVATE Terracotta2)
+
 add_executable(Widget_Gallery widget_gallery.cpp)
 target_link_libraries(Widget_Gallery PRIVATE Terracotta2)
 
@@ -19,7 +22,7 @@ target_link_libraries(Node_Editor_Test PRIVATE Terracotta2)
 add_executable(Core_Test core_test.cpp)
 target_link_libraries(Core_Test PRIVATE Terracotta2)
 
-set(TC2_APPS Docking Benchmark Hello_World Widget_Gallery Node_Editor)
+set(TC2_APPS Docking Benchmark Hello_World Custom_Titlebar Widget_Gallery Node_Editor)
 
 # Skia only builds its SVG module for static builds (skia_enable_svg = !is_component_build),
 # so a DLL triplet such as x64-windows-release has no svg target.

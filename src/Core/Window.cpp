@@ -29,6 +29,7 @@
 #include "../UI/Tooltip.hpp"
 #include "terracotta2/Theme/Theme.hpp"
 #include "terracotta2/UI/ScrollView.hpp"
+#include "terracotta2/UI/TitleBar.hpp"
 
 namespace Terracotta2 {
 
@@ -63,6 +64,8 @@ struct Window::Impl : platform::WindowEvents {
     bool floating = false;
     bool popup = false;       // WindowDesc::popup: sized to content, placed at `anchor`, shown after its first frame
     bool popupShown = false;
+    bool customTitlebar = false; // WindowDesc::customTitlebar
+    bool active = true;          // the OS active (key) window; custom titlebars dim when not
     SkRect anchor = SkRect::MakeEmpty(); // popup: what it is attached to, screen logical px
     bool ready = false; // OS callbacks arriving during construction are ignored
 
@@ -239,6 +242,30 @@ struct Window::Impl : platform::WindowEvents {
     void onChar(uint32_t cp) override {
         if (ready) self->injectChar(cp);
     }
+    // Custom titlebar: the point drags the window when the widget under it is inside a TitleBar and
+    // neither it nor anything between it and the bar takes input (focusable, a non-arrow cursor, or
+    // the caption buttons).
+    bool isCaption(float x, float y) override {
+        if (!customTitlebar || !root) return false;
+        for (Widget* w = root->hitTest(x, y); w; w = w->parent()) {
+            if (dynamic_cast<TitleBar*>(w)) return true;
+            if (w->isFocusable() || w->cursor() != Cursor::Arrow || dynamic_cast<WindowButtons*>(w)) return false;
+        }
+        return false;
+    }
+    bool isMaximizeButton(float x, float y) override {
+        if (!customTitlebar || !root) return false;
+        Widget* hit = root->hitTest(x, y);
+        auto* buttons = hit ? dynamic_cast<WindowButtons*>(hit->parent()) : nullptr;
+        return buttons && buttons->maximizeButton() == hit;
+    }
+    void onActivate(bool a) override {
+        if (!ready || a == active) return;
+        active = a;
+        if (!root) return;
+        for (auto& c : root->children()) // repaint title bars: their caption buttons dim
+            if (dynamic_cast<TitleBar*>(c.get())) c->markPaintDirty();
+    }
     void onCloseRequest() override {
         if (!ready) return;
         if (onClose) {
@@ -263,6 +290,7 @@ Window::Window(Application& app, const WindowDesc& desc) : m_impl(std::make_uniq
             owner = A.natives.at(A.main);
         }
         d.popup = desc.popup;
+        d.customTitlebar = desc.customTitlebar;
         d.anchor = SkRect::MakeXYWH(desc.x, desc.y, 0, desc.anchorHeight);
         d.floating = !desc.popup && owner != nullptr;
         d.native = platform::createWindow(desc, &d, owner);
@@ -303,6 +331,10 @@ Widget* Window::focusedWidget() const { return m_impl->focused; }
 bool Window::isFloating() const { return m_impl->floating; }
 void Window::setTitle(const std::string& title) { platform::setTitle(m_impl->native, title); }
 void Window::raise() { platform::raise(m_impl->native); }
+void Window::minimize() { platform::minimize(m_impl->native); }
+void Window::toggleMaximize() { platform::toggleMaximize(m_impl->native); }
+bool Window::isMaximized() const { return platform::isMaximized(m_impl->native); }
+bool Window::isActive() const { return m_impl->active; }
 void Window::setOnClose(std::function<void()> handler) { m_impl->onClose = std::move(handler); }
 void Window::setOnFrame(std::function<void()> handler) { m_impl->onFrame = std::move(handler); }
 void Window::requestClose() { m_impl->onCloseRequest(); }
@@ -597,6 +629,11 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
     if (down && A.popup && A.popup != this) { // a press outside the open popup closes it, like a native menu
         d.pressed = nullptr;
         if (auto close = A.closePopup) close();
+        return;
+    }
+    if (down && button == MouseButton::Left && d.isCaption(x, y)) { // macOS: the OS drags the window
+        tooltip::hide(d.root.get(), false);
+        platform::startWindowDrag(d.native);
         return;
     }
     MouseEvent ev{x, y, button, mods};

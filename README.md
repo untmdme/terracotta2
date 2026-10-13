@@ -185,7 +185,17 @@ page.add<Slider>(0, 100).value(50).onChange([](float v) { /* ... */ });
 
 **Keyboard.** Tab and Shift+Tab move focus between buttons, fields and other controls, and scroll the focused one into view. Space or Enter clicks a focused button.
 
-**Headers.** `<terracotta2/Terracotta2.hpp>` includes everything. Each widget also has its own header in `terracotta2/UI/` (`Button.hpp`, `Slider.hpp`, ...), with closely related ones together: `Box.hpp` (VBox, HBox, Panel), `Toggle.hpp` (Toggle, Checkbox), `Slider.hpp` (Slider, ProgressBar), `InputText.hpp` (InputText, TextArea), `Menu.hpp` (openMenu, Dropdown) and `Popup.hpp` (Overlay, PopupBox).
+**Custom title bars.** Create the window with `.customTitlebar = true` and add a `TitleBar` as the root's first child. Your widgets go inside it. Its empty parts and plain widgets such as labels drag the window, and a double-click maximizes it, using the OS's own behavior on each platform. Buttons and other interactive widgets in it stay clickable. macOS keeps its native traffic-light buttons, and `TitleBar` leaves room for them. On Windows, add `WindowButtons` at the end for minimize, maximize and close.
+
+```cpp
+Window* window = app.createWindow({.title = "My App", .customTitlebar = true});
+window->root()->add<TitleBar>().build([](TitleBar& bar) {
+    bar.add<Label>("My App").grow(1);
+    bar.add<WindowButtons>(); // nothing on macOS
+});
+```
+
+**Headers.** `<terracotta2/Terracotta2.hpp>` includes everything. Each widget also has its own header in `terracotta2/UI/` (`Button.hpp`, `Slider.hpp`, ...), with closely related ones together: `Box.hpp` (VBox, HBox, Panel), `Toggle.hpp` (Toggle, Checkbox), `Slider.hpp` (Slider, ProgressBar), `InputText.hpp` (InputText, TextArea), `Menu.hpp` (openMenu, Dropdown), `Popup.hpp` (Overlay, PopupBox) and `TitleBar.hpp` (TitleBar, WindowButtons).
 
 Labels wrap to the width their container gives them. To use your own font, call `loadFont("path.ttf")` and pass the family name it returns to `.font()`.
 
@@ -249,6 +259,7 @@ The example apps in `app/` are the best reference after this page:
 | File | What it shows |
 | --- | --- |
 | `hello_world.cpp` | The smallest useful app (the walkthrough above) |
+| `custom_titlebar.cpp` | A window that draws its own title bar, on macOS and Windows |
 | `widget_gallery.cpp` | Every built-in widget, text styles, scrolling and a custom animated widget |
 | `docking_example.cpp` | A docked workspace that doubles as a layout, text and custom drawing tutorial |
 | `media_example.cpp` | Image (PNG) and SVG icon widgets written outside the library (icons are rasterized once per size and shared, so long icon lists stay cheap), and background loading on a worker thread |

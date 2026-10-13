@@ -16,6 +16,7 @@
 #include "terracotta2/UI/Popup.hpp"
 #include "terracotta2/UI/ScrollView.hpp"
 #include "terracotta2/UI/Slider.hpp"
+#include "terracotta2/UI/TitleBar.hpp"
 #include "terracotta2/UI/Toggle.hpp"
 #include "terracotta2/UI/VirtualList.hpp"
 #include "terracotta2/UI/Widget.hpp"

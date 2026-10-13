@@ -189,6 +189,12 @@ static Key keyOf(unsigned short code) {
     if (_events) _events->onCloseRequest();
     return NO; // Application destroys the window (deferred)
 }
+- (void)windowDidBecomeKey:(NSNotification*)n {
+    if (_events) _events->onActivate(true);
+}
+- (void)windowDidResignKey:(NSNotification*)n {
+    if (_events) _events->onActivate(false);
+}
 - (void)windowDidResize:(NSNotification*)n {
     if (!_events) return;
     _events->onResize();
@@ -276,8 +282,9 @@ void shutdown() {
 
 NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeWindow* owner) {
     @autoreleasepool {
-        const NSWindowStyleMask mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                                       NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+        NSWindowStyleMask mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                                 NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+        if (desc.customTitlebar) mask |= NSWindowStyleMaskFullSizeContentView; // content under the titlebar
         const bool centered = std::isnan(desc.x) || std::isnan(desc.y);
         // desc.x/y: content top-left in y-down screen px -> Cocoa bottom-left origin.
         NSRect content = NSMakeRect(centered ? 0 : desc.x, centered ? 0 : primaryHeight() - desc.y - desc.height,
@@ -312,6 +319,10 @@ NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeW
         win.releasedWhenClosed = NO;
         win.acceptsMouseMovedEvents = YES;
         win.title = [NSString stringWithUTF8String:desc.title.c_str()];
+        if (desc.customTitlebar) { // keep the traffic lights, drop the bar and its title
+            win.titlebarAppearsTransparent = YES;
+            win.titleVisibility = NSWindowTitleHidden;
+        }
         if (centered) [win center];
 
         TCView* view = [[TCView alloc] initWithFrame:[win contentRectForFrameRect:win.frame]];
@@ -400,6 +411,21 @@ SkRect workArea(SkPoint screen) {
 }
 
 void setOnDeactivate(std::function<void()> fn) { g_onDeactivate = std::move(fn); }
+
+void startWindowDrag(NativeWindow* w) {
+    NSEvent* e = NSApp.currentEvent;
+    if (e.type != NSEventTypeLeftMouseDown) return; // called outside a real press (tests)
+    if (e.clickCount == 2) { // the user's "double-click a window's title bar to" setting
+        NSString* action = [NSUserDefaults.standardUserDefaults stringForKey:@"AppleActionOnDoubleClick"];
+        if ([action isEqualToString:@"Minimize"]) [w->window performMiniaturize:nil];
+        else if (![action isEqualToString:@"None"]) [w->window performZoom:nil];
+        return;
+    }
+    [w->window performWindowDragWithEvent:e];
+}
+void minimize(NativeWindow* w) { [w->window performMiniaturize:nil]; }
+void toggleMaximize(NativeWindow* w) { [w->window performZoom:nil]; }
+bool isMaximized(NativeWindow* w) { return w->window.isZoomed; }
 
 void setTitle(NativeWindow* w, const std::string& title) {
     w->window.title = [NSString stringWithUTF8String:title.c_str()];
