@@ -36,7 +36,7 @@ else()
 endif()
 
 # Dawn's D3D backends load their shader compilers at runtime from the executable's directory:
-# DXC (dxcompiler.dll + dxil.dll, from vcpkg's directx-dxc) and FXC (d3dcompiler_47.dll, from the
+# DXC (dxcompiler.dll + dxil.dll, from deps/<platform>/bin) and FXC (d3dcompiler_47.dll, from the
 # Windows SDK redist). Without them RequestDevice fails.
 if(WIN32)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64")
@@ -46,8 +46,8 @@ if(WIN32)
     endif()
     find_file(TC2_D3DCOMPILER_DLL d3dcompiler_47.dll REQUIRED NO_DEFAULT_PATH
         PATHS "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/Redist/D3D/${TC2_SDK_ARCH}")
-    set(TC2_VCPKG_BIN "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
-    set(TC2_RUNTIME_DLLS "${TC2_VCPKG_BIN}/dxcompiler.dll" "${TC2_VCPKG_BIN}/dxil.dll" "${TC2_D3DCOMPILER_DLL}")
+    set(TC2_DEPS_BIN "${TC2_DEPS_DIR}/bin")
+    set(TC2_RUNTIME_DLLS "${TC2_DEPS_BIN}/dxcompiler.dll" "${TC2_DEPS_BIN}/dxil.dll" "${TC2_D3DCOMPILER_DLL}")
 endif()
 
 # App icon from assets/logo.svg: a .app bundle with app.icns on macOS, an icon resource on Windows.

@@ -3,10 +3,7 @@
   "configurePresets": [
     {
       "name": "base",
-      "hidden": true,
-      "cacheVariables": {
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
-      }
+      "hidden": true
     },
     {
       "name": "debug",

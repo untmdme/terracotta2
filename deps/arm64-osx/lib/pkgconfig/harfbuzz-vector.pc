@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: harfbuzz-vector
+Description: HarfBuzz vector converter
+Version: 14.5.1
+
+Libs: "-L${libdir}" -lharfbuzz-vector -lm -lharfbuzz
+Requires: harfbuzz =  14.5.1
+Cflags: "-I${includedir}/harfbuzz"

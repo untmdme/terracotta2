@@ -1,46 +1,18 @@
 cmake_minimum_required(VERSION 3.30)
 
-# Standalone builds bootstrap the vcpkg submodule; as a subproject or vcpkg port the parent supplies the toolchain.
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-# vcpkg is a git submodule pinned to vcpkg.json's builtin-baseline. Fetch it on first configure
-# and bootstrap it, so a plain clone builds with no manual setup.
-set(TC2_VCPKG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg")
-if(NOT EXISTS "${TC2_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-    message(STATUS "Fetching vcpkg submodule")
-    # Also search Git for Windows' install locations, so git need not be on PATH.
-    find_program(TC2_GIT git REQUIRED
-        HINTS "$ENV{ProgramFiles}/Git/cmd" "$ENV{ProgramW6432}/Git/cmd" "$ENV{LOCALAPPDATA}/Programs/Git/cmd")
-    execute_process(COMMAND "${TC2_GIT}" submodule update --init vcpkg
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" COMMAND_ERROR_IS_FATAL ANY)
-endif()
-if(CMAKE_HOST_WIN32)
-    set(TC2_VCPKG_EXE "${TC2_VCPKG_ROOT}/vcpkg.exe")
-    set(TC2_VCPKG_BOOTSTRAP "${TC2_VCPKG_ROOT}/bootstrap-vcpkg.bat")
-else()
-    set(TC2_VCPKG_EXE "${TC2_VCPKG_ROOT}/vcpkg")
-    set(TC2_VCPKG_BOOTSTRAP "${TC2_VCPKG_ROOT}/bootstrap-vcpkg.sh")
-endif()
-if(NOT EXISTS "${TC2_VCPKG_EXE}")
-    message(STATUS "Bootstrapping vcpkg")
-    execute_process(COMMAND "${TC2_VCPKG_BOOTSTRAP}" -disableMetrics
-        WORKING_DIRECTORY "${TC2_VCPKG_ROOT}" COMMAND_ERROR_IS_FATAL ANY)
-endif()
-set(CMAKE_TOOLCHAIN_FILE "${TC2_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "")
-
-# Static, release-only triplets for the host (a DLL Skia drops its SVG module and leaves
-# skparagraph symbols unexported); override with -DVCPKG_TARGET_TRIPLET=...
+# Prebuilt, static, release-only Yoga/Skia/Dawn live in deps/<platform> (copied from a vcpkg
+# install tree, so its CMake config files are reused as-is). Override with -DTC2_DEPS_DIR=...
 if(CMAKE_HOST_WIN32)
     if("$ENV{PROCESSOR_ARCHITECTURE}" STREQUAL "ARM64")
-        set(TC2_DEFAULT_TRIPLET arm64-windows-static-md)
+        set(TC2_DEFAULT_DEPS arm64-windows)
     else()
-        set(TC2_DEFAULT_TRIPLET x64-windows-static-md-release)
+        set(TC2_DEFAULT_DEPS x64-windows)
     endif()
 else()
-    set(TC2_DEFAULT_TRIPLET arm64-osx-release)
+    set(TC2_DEFAULT_DEPS arm64-osx)
 endif()
-set(VCPKG_TARGET_TRIPLET "${TC2_DEFAULT_TRIPLET}" CACHE STRING "")
-set(VCPKG_HOST_TRIPLET "${TC2_DEFAULT_TRIPLET}" CACHE STRING "")
-endif()
+set(TC2_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/${TC2_DEFAULT_DEPS}" CACHE PATH "Prebuilt dependency prefix")
+list(PREPEND CMAKE_PREFIX_PATH "${TC2_DEPS_DIR}")
 
 # The debug preset turns this on: RelWithDebInfo built unoptimized with debug info and asserts.
 option(TC2_UNOPTIMIZED "Build RelWithDebInfo without optimization" OFF)

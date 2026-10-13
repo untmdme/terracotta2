@@ -12,10 +12,10 @@ Windows only repaint the regions that changed, so an idle app uses 0% CPU.
 
 ## Building
 
-You need CMake 3.30 or newer, git, and a C++23 compiler (deducing `this` is required). vcpkg is a git submodule: the first configure fetches it, bootstraps it and installs Yoga, Skia and Dawn from `vcpkg.json`. That first run builds Skia and Dawn from source and takes about an hour. Later builds reuse vcpkg's cache.
+You need CMake 3.30 or newer and a C++23 compiler (deducing `this` is required). Yoga, Skia (Graphite + Dawn) and Dawn come prebuilt in `deps/<platform>`: static, release-only libraries with their CMake config files. Nothing is downloaded or built from source.
 
 ```bash
-git clone --recursive <repo-url> terracotta2 && cd terracotta2
+git clone <repo-url> terracotta2 && cd terracotta2
 cmake --preset debug             # or: release
 cmake --build --preset debug -j
 open build/debug/app/Hello_World.app   # macOS; Windows: build\debug\app\Hello_World.exe
@@ -23,10 +23,10 @@ open build/debug/app/Hello_World.app   # macOS; Windows: build\debug\app\Hello_W
 
 Two presets, each with its own build directory:
 
-- `debug` (`build/debug`): your code at `-O0 -g` with asserts enabled. It is CMake's `RelWithDebInfo` configuration with debug flags, not `Debug`: vcpkg's Skia package drops its libraries and defines in a configuration named `Debug` when only release libraries are installed. On Windows the same preset uses `/Od /Zi`.
+- `debug` (`build/debug`): your code at `-O0 -g` with asserts enabled. It is CMake's `RelWithDebInfo` configuration with debug flags, not `Debug`: the prebuilt Skia package drops its libraries and defines in a configuration named `Debug`, since only release libraries are shipped. On Windows the same preset uses `/Od /Zi`.
 - `release` (`build/release`): optimized, `NDEBUG`.
 
-Both link the same release-built Skia, Dawn and Yoga (one vcpkg install shared by both); debug builds of Skia and Dawn would take hours to build and run very slowly. The vcpkg triplet is picked from the host: `arm64-osx-release` on macOS, `x64-windows-static-md-release` or `arm64-windows-static-md` on Windows. Override it with `-DVCPKG_TARGET_TRIPLET=...`, but keep it static: a DLL build of Skia has no SVG module and does not export the skparagraph symbols.
+Both link the same release-built Skia, Dawn and Yoga. The dependency folder is picked from the host: `deps/arm64-osx` on macOS, `deps/x64-windows` or `deps/arm64-windows` on Windows. Override it with `-DTC2_DEPS_DIR=...`. Each folder is a vcpkg install tree (`vcpkg_installed/<triplet>` without `tools/`) built from the `arm64-osx-release`, `x64-windows-static-md-release` and `arm64-windows-static-md` triplets. Keep them static: a DLL build of Skia has no SVG module and does not export the skparagraph symbols.
 
 `build/<preset>/app/Core_Test` checks focus order, list virtualization, multi-line editing, menu keys and tooltips in a live window. `Node_Editor_Test` checks the node editor's model, and `Node_Editor --bench` drives the whole editor through scripted input.
 
@@ -39,7 +39,7 @@ target_link_libraries(My_App PRIVATE Terracotta2)
 
 ## Using it in your own project
 
-Terracotta2 is a CMake library target. When it is not the top-level project, it skips its vcpkg bootstrap and does not build the example apps (set `TC2_BUILD_APPS=ON` to build them anyway). Your project then has to provide Yoga, Skia and Dawn itself. The simplest way is to use vcpkg in manifest mode and copy the `dependencies` from Terracotta2's `vcpkg.json` (with the same features) into yours.
+Terracotta2 is a CMake library target. When it is not the top-level project, it does not build the example apps (set `TC2_BUILD_APPS=ON` to build them anyway). It still adds its `deps/<platform>` folder to `CMAKE_PREFIX_PATH`, so Yoga, Skia and Dawn are found without extra setup.
 
 As a subdirectory or git submodule:
 

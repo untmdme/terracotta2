@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: harfbuzz-gpu
+Description: HarfBuzz GPU rasterization library
+Version: 14.5.1
+
+Libs: "-L${libdir}" -lharfbuzz-gpu -lm -lharfbuzz
+Requires: harfbuzz =  14.5.1
+Cflags: "-I${includedir}/harfbuzz"

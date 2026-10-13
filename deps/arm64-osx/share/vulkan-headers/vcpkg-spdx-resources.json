@@ -1,0 +1,19 @@
+{
+  "packages": [
+{
+  "SPDXID" : "SPDXRef-resource-0",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "262e4fabdcea0e13c18aac831b2ad6d99d17c83ae0e740d658792a5f48985befe128e9cd6e69309b21580eda17aecf564359379344300bf2a352a95830f9f944"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/KhronosGroup/Vulkan-Headers@vulkan-sdk-1.4.363.0",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "KhronosGroup/Vulkan-Headers"
+}
+  ]
+}

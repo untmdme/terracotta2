@@ -1,0 +1,14 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: unofficial_webgpu_dawn
+Description: Dawn WebGPU library
+Version: 20260911.162847
+URL: https://dawn.googlesource.com/dawn
+
+
+Libs: "-L${libdir}" -lwebgpu_dawn -framework IOSurface -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit
+Requires: absl_flat_hash_set, absl_flat_hash_map, absl_inlined_vector, absl_no_destructor, absl_overload, absl_strings, absl_span, absl_string_view
+Cflags: "-I${includedir}" 
