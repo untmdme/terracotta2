@@ -18,12 +18,16 @@
 // input port = wire (drag a wired input away to disconnect). Keys (any panel): Ctrl/Cmd+C/X/V/D/A,
 // Delete, K (key selected nodes), F (frame selection), Space (play), Left/Right (frame), Home/End.
 #include <terracotta2/Terracotta2.hpp>
+#include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkRRect.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkVertices.h"
 #include "model.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -100,6 +104,54 @@ void drawWire(SkCanvas* c, SkPaint& p, SkPoint a, SkPoint b, const SkRect& clip,
     c->drawPath(path.detach(), p);
 }
 
+// Flat-coloured triangles, drawn in order by one drawVertices call (no anti-aliasing).
+struct Mesh {
+    std::vector<SkPoint> pos;
+    std::vector<SkColor> col;
+    void tri(SkPoint a, SkPoint b, SkPoint c, SkColor k) {
+        pos.insert(pos.end(), {a, b, c});
+        col.insert(col.end(), 3, k);
+    }
+    void fan(const SkPoint* p, int n, SkColor k) { // convex polygon
+        for (int i = 2; i < n; ++i) tri(p[0], p[i - 1], p[i], k);
+    }
+    void rect(const SkRect& r, SkColor k) {
+        const SkPoint p[] = {{r.fLeft, r.fTop}, {r.fRight, r.fTop}, {r.fRight, r.fBottom}, {r.fLeft, r.fBottom}};
+        fan(p, 4, k);
+    }
+    void diamond(SkPoint m, float r, SkColor k) {
+        const SkPoint p[] = {{m.x(), m.y() - r}, {m.x() + r, m.y()}, {m.x(), m.y() + r}, {m.x() - r, m.y()}};
+        fan(p, 4, k);
+    }
+    void circle(SkPoint m, float r, SkColor k) {
+        SkPoint p[8];
+        for (int i = 0; i < 8; ++i) p[i] = m + SkVector{r * std::cos(i * 0.785398f), r * std::sin(i * 0.785398f)};
+        fan(p, 8, k);
+    }
+    void rrect(const SkRect& r, float rad, SkColor k, bool roundBottom = true) { // 3 segments per corner
+        SkPoint p[16];
+        int n = 0;
+        const SkPoint centres[] = {{r.fLeft + rad, r.fTop + rad}, {r.fRight - rad, r.fTop + rad},
+                                   {r.fRight - rad, r.fBottom - rad}, {r.fLeft + rad, r.fBottom - rad}};
+        for (int c = 0; c < 4; ++c) {
+            if (c >= 2 && !roundBottom) {
+                p[n++] = c == 2 ? SkPoint{r.fRight, r.fBottom} : SkPoint{r.fLeft, r.fBottom};
+                continue;
+            }
+            for (int s = 0; s <= 3; ++s) {
+                const float a = (c + 2 + s / 3.0f) * 1.570796f; // c = 0: 180..270 degrees
+                p[n++] = centres[c] + SkVector{rad * std::cos(a), rad * std::sin(a)};
+            }
+        }
+        fan(p, n, k);
+    }
+    // Text too small to read: a bar about as tall and wide as its glyphs, at their average coverage.
+    static float textWidth(std::string_view s, float size) { return float(s.size()) * size * 0.55f; }
+    void text(float x, float cy, std::string_view s, float size, SkColor k) {
+        rect(SkRect::MakeLTRB(x, cy - size * 0.28f, x + textWidth(s, size), cy + size * 0.3f), SkColorSetA(k, SkColorGetA(k) * 10 / 16));
+    }
+};
+
 class NodeEditor;
 class NodeList;
 class TimelinePanel;
@@ -166,14 +218,16 @@ private:
     int m_p;
 };
 
+SkColor swatchColor(const Node& n, float t) {
+    float hsv[3] = {std::fmod(n.at(kHue, t), 360.0f), n.at(kSat, t), n.at(kVal, t)};
+    return SkHSVToColor(uint8_t(std::clamp(n.at(kAlpha, t), 0.0f, 1.0f) * 255), hsv);
+}
+
 // Colour node preview; click for a colour picker that writes Hue/Saturation/Value/Alpha.
 class Swatch : public Widget {
 public:
     Swatch(Studio& s, Node* n) : m_s(s), m_node(n) { height(18).grow(1).basis(0); }
-    SkColor color() const {
-        float hsv[3] = {std::fmod(m_node->at(kHue, m_s.time), 360.0f), m_node->at(kSat, m_s.time), m_node->at(kVal, m_s.time)};
-        return SkHSVToColor(uint8_t(std::clamp(m_node->at(kAlpha, m_s.time), 0.0f, 1.0f) * 255), hsv);
-    }
+    SkColor color() const { return swatchColor(*m_node, m_s.time); }
     bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
     bool onMouseClick(const MouseEvent& e) override {
         if (e.button != MouseButton::Left) return false;
@@ -390,8 +444,8 @@ private:
 // The graph canvas. Manual layout: each NodeView's frame is its node's position in content space, and
 // the view (pan + zoom) is a childTransform, so panning and zooming never re-run layout. Views outside
 // the viewport are hidden, so Yoga, painting and hit testing only see the nodes on screen. Zoomed out
-// past kLodZoom every view is hidden and the editor draws simple boxes instead (thousands of tiny
-// widgets would cost far more than they show). A minimap sits in the bottom-right corner.
+// past kLodZoom every view is hidden and the editor draws each node as flat shapes in its widgets'
+// colours, all in one draw call (thousands of tiny widgets would cost far more than they show). A minimap sits in the bottom-right corner.
 constexpr float kMinZoom = 0.04f, kMaxZoom = 2.0f, kLodZoom = 0.35f;
 constexpr float kMiniW = 200, kMiniMaxH = 150, kMiniMargin = 10;
 
@@ -451,7 +505,7 @@ public:
     }
     std::function<void()> onViewChanged;
 
-    // Zoomed out past kLodZoom, draw boxes instead of node widgets (unless turned off).
+    // Zoomed out past kLodZoom, draw flat shapes instead of node widgets (unless turned off).
     bool lod() const { return m_lodEnabled && m_zoom < kLodZoom; }
     bool lodEnabled() const { return m_lodEnabled; }
     void setLodEnabled(bool on) {
@@ -706,28 +760,82 @@ private:
         });
     }
 
-    // Zoomed out: a box per node with its header colour, no widgets.
+    // Zoomed out: each node as flat shapes in its widgets' colours (fields, value fills, swatch, keys,
+    // ports; text as bars), all nodes in one drawVertices call instead of thousands of widgets. Mirrors
+    // NodeView's layout: rows of kRowH, 16 px padding, a 58 px label column, then the field and key.
     void drawNodeBoxes(SkCanvas* c, const SkRect& clip) {
-        SkPaint p;
-        p.setAntiAlias(m_zoom > 0.1f);
-        const float radius = 6 * m_zoom;
-        for (auto& n : m_s.doc.nodes) {
-            const SkRect nr = nodeRect(*n);
-            const SkPoint a = contentToWindow({nr.left(), nr.top()}), b = contentToWindow({nr.right(), nr.bottom()});
-            const SkRect r = SkRect::MakeLTRB(a.x(), a.y(), b.x(), b.y());
-            if (!SkRect::Intersects(r, clip)) continue;
-            p.setStyle(SkPaint::kFill_Style);
-            p.setColor(SkColorSetRGB(46, 46, 50));
-            c->drawRoundRect(r, radius, radius, p);
-            p.setColor(typeDef(n->type).color);
-            c->drawRect(SkRect::MakeLTRB(r.left(), r.top(), r.right(), r.top() + kTitleH * m_zoom), p);
-            if (n->selected) {
-                p.setStyle(SkPaint::kStroke_Style);
-                p.setStrokeWidth(1.5f);
-                p.setColor(kSelect);
-                c->drawRoundRect(r, radius, radius, p);
-            }
+        Mesh m;
+        const SkRect vis = SkRect::MakeLTRB(toContent({clip.left(), clip.top()}).x(), toContent({clip.left(), clip.top()}).y(),
+                                            toContent({clip.right(), clip.bottom()}).x(), toContent({clip.right(), clip.bottom()}).y());
+        for (auto& n : m_s.doc.nodes)
+            if (SkRect::Intersects(vis, nodeRect(*n))) addNodeShapes(m, *n);
+        if (m.pos.empty()) return;
+        c->save();
+        c->translate(m_bounds.left(), m_bounds.top());
+        c->scale(m_zoom, m_zoom);
+        c->translate(-m_pan.x(), -m_pan.y());
+        c->drawVertices(SkVertices::MakeCopy(SkVertices::kTriangles_VertexMode, int(m.pos.size()), m.pos.data(), nullptr, m.col.data()),
+                        SkBlendMode::kDst, SkPaint()); // kDst: the vertex colours
+        c->restore();
+    }
+    void addNodeShapes(Mesh& m, const Node& n) const { // content coords
+        const TypeDef& d = typeDef(n.type);
+        const auto& in = theme().input;
+        const SkRect r = nodeRect(n);
+        const float x = r.left(), y = r.top(), t = m_s.time;
+        constexpr SkColor kDark = SkColorSetRGB(16, 16, 18);
+        m.rrect(r, 6, SkColorSetARGB(245, 46, 46, 50));
+        m.rrect(SkRect::MakeXYWH(x, y, kNodeW, kTitleH), 6, d.color, false);
+        if (n.selected) { // NodeView's 2 px, but at least 1 window px so it never drops out
+            const float w = std::max(2.0f, 1 / m_zoom);
+            m.rect(SkRect::MakeLTRB(r.fLeft, r.fTop, r.fRight, r.fTop + w), kSelect);
+            m.rect(SkRect::MakeLTRB(r.fLeft, r.fBottom - w, r.fRight, r.fBottom), kSelect);
+            m.rect(SkRect::MakeLTRB(r.fLeft, r.fTop, r.fLeft + w, r.fBottom), kSelect);
+            m.rect(SkRect::MakeLTRB(r.fRight - w, r.fTop, r.fRight, r.fBottom), kSelect);
         }
+        m.text(x + 10, y + kTitleH / 2, n.name, 12, SK_ColorWHITE);
+        int row = 0;
+        auto cy = [&](int i) { return y + kTitleH + (i + 0.5f) * kRowH; };
+        if (d.hasOutput) m.text(x + kNodeW - 16 - Mesh::textWidth(d.name, 11), cy(row++), d.name, 11, kMuted);
+        for (Port p : d.inputs) m.text(x + 16, cy(row++), typeDef(NodeType(int(p))).name, 11, kMuted);
+        if (n.type == NodeType::Color) {
+            m.text(x + 16, cy(row), "Color", 11, kMuted);
+            m.rect(SkRect::MakeLTRB(x + 80, cy(row) - 9, x + kNodeW - 16, cy(row) + 9), swatchColor(n, t));
+            ++row;
+        }
+        for (int p = 0; p < int(d.params.size()); ++p, ++row) {
+            const ParamDef& pd = d.params[p];
+            const float c = cy(row), v = n.at(p, t);
+            m.text(x + 16, c, pd.name, 11, kMuted);
+            const SkRect f = SkRect::MakeLTRB(x + 80, c - 10, x + kNodeW - 36, c + 10);
+            m.rect(f, in.background);
+            if (pd.choices.empty()) { // DragNumber: fill, centred value
+                SkRect fill = f;
+                fill.fRight = f.fLeft + f.width() * std::clamp((v - pd.min) / (pd.max - pd.min), 0.0f, 1.0f);
+                m.rect(fill, SkColorSetA(theme().accent, 90));
+                char b[32];
+                std::snprintf(b, sizeof b, "%.*f", pd.decimals, v);
+                m.text(f.centerX() - Mesh::textWidth(b, theme().label.fontSize) / 2, c, b, theme().label.fontSize, theme().label.text);
+            } else { // Dropdown: text, chevron
+                m.text(f.left() + in.paddingX, c, pd.choices[std::clamp(int(v), 0, int(pd.choices.size()) - 1)], theme().label.fontSize,
+                       theme().label.text);
+                const float cx = f.right() - 11;
+                m.tri({cx - 4, c - 2}, {cx + 4, c - 2}, {cx, c + 3}, theme().textMuted);
+            }
+            const Param& prm = n.params[p];
+            const SkColor kc = prm.animated() ? kKey : SkColorSetRGB(90, 90, 96);
+            const SkPoint key{x + kNodeW - 23, c};
+            if (prm.keyAt(t)) m.diamond(key, 5, kc);
+            else m.diamond(key, 5.6f, kc), m.diamond(key, 4.4f, SkColorSetRGB(45, 45, 49)); // KeyButton's 1.2 px outline over the body
+        }
+        auto port = [&](SkPoint at, Port type, bool filled) {
+            const SkPoint p{x + at.x(), y + at.y()};
+            m.circle(p, kPortR + 1.5f, kDark);
+            m.circle(p, filled ? kPortR : kPortR - 0.25f, portColor(type));
+            if (!filled) m.circle(p, kPortR - 1.75f, kDark); // a ring
+        };
+        if (d.hasOutput) port(outputPort(), Port(int(n.type)), true);
+        for (int i = 0; i < int(d.inputs.size()); ++i) port(inputPort(n, i), d.inputs[i], n.inputs[i] != nullptr);
     }
 
     // ---- minimap ----
@@ -744,24 +852,55 @@ private:
         const SkPoint c{cb.left() + (w.x() - mr.left()) / mr.width() * cb.width(), cb.top() + (w.y() - mr.top()) / mr.height() * cb.height()};
         setPan(c - SkVector{m_bounds.width() / 2 / m_zoom, m_bounds.height() / 2 / m_zoom});
     }
+    // The node rects are drawn into an image, redrawn only when a node moves, appears, disappears or
+    // changes selection (a hash of all of them): panning and zooming only move the view frame over it.
     void drawMinimap(SkCanvas* c) {
         const SkRect mr = minimapRect();
         if (mr.isEmpty() || !SkRect::Intersects(mr.makeOutset(2, 2), c->getLocalClipBounds())) return;
         const SkRect cb = contentBounds();
-        const float k = mr.width() / cb.width();
-        auto map = [&](const SkRect& r) {
-            return SkRect::MakeXYWH(mr.left() + (r.left() - cb.left()) * k, mr.top() + (r.top() - cb.top()) * k, r.width() * k, r.height() * k);
+        auto mapInto = [&](const SkRect& into, const SkRect& r) {
+            const float k = into.width() / cb.width();
+            return SkRect::MakeXYWH(into.left() + (r.left() - cb.left()) * k, into.top() + (r.top() - cb.top()) * k, r.width() * k, r.height() * k);
         };
         SkPaint p;
         p.setAntiAlias(true);
         p.setColor(SkColorSetARGB(220, 18, 18, 20));
         c->drawRoundRect(mr.makeOutset(4, 4), 5, 5, p);
-        p.setAntiAlias(false);
+        auto drawNodes = [&](SkCanvas* dst, const SkRect& into) {
+            SkPaint np;
+            for (auto& n : m_s.doc.nodes) {
+                np.setColor(n->selected ? kSelect : SkColorSetA(typeDef(n->type).color, 200));
+                dst->drawRect(mapInto(into, nodeRect(*n)), np);
+            }
+        };
+        // Device pixels, so the image lands 1:1 on the screen.
+        const float s = c->getTotalMatrix().getScaleX();
+        const SkRect dst = SkRect::MakeXYWH(std::round(mr.left() * s) / s, std::round(mr.top() * s) / s,
+                                            std::ceil(mr.width() * s) / s, std::ceil(mr.height() * s) / s);
+        uint64_t key = 0xcbf29ce484222325ull; // FNV-1a
+        auto mix = [&key](uint32_t v) { key = (key ^ v) * 0x100000001b3ull; };
+        mix(std::bit_cast<uint32_t>(dst.width() * s));
+        mix(std::bit_cast<uint32_t>(dst.height() * s));
         for (auto& n : m_s.doc.nodes) {
-            p.setColor(n->selected ? kSelect : SkColorSetA(typeDef(n->type).color, 200));
-            c->drawRect(map(nodeRect(*n)), p);
+            mix(std::bit_cast<uint32_t>(n->pos.x()));
+            mix(std::bit_cast<uint32_t>(n->pos.y()));
+            mix(uint32_t(n->type) << 1 | n->selected);
         }
-        SkRect view = map(viewport());
+        if (!m_minimap || key != m_minimapKey) {
+            const sk_sp<SkSurface> surface =
+                c->makeSurface(SkImageInfo::MakeN32Premul(int(std::lround(dst.width() * s)), int(std::lround(dst.height() * s))));
+            if (!surface) { // no GPU-backed canvas: draw directly
+                drawNodes(c, mr);
+                m_minimap.reset();
+            } else {
+                surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+                drawNodes(surface->getCanvas(), SkRect::MakeIWH(surface->width(), surface->height()));
+                m_minimap = surface->makeImageSnapshot();
+                m_minimapKey = key;
+            }
+        }
+        if (m_minimap) c->drawImageRect(m_minimap, dst, SkSamplingOptions(SkFilterMode::kNearest));
+        SkRect view = mapInto(mr, viewport());
         view.intersect(mr.makeOutset(4, 4));
         p.setAntiAlias(true);
         p.setStyle(SkPaint::kStroke_Style);
@@ -774,6 +913,8 @@ private:
     SkPoint m_pan{0, 0};
     float m_zoom = 1.0f;
     bool m_lodEnabled = true;
+    sk_sp<SkImage> m_minimap;
+    uint64_t m_minimapKey = 0;
     Drag m_drag = Drag::None;
     SkPoint m_press{}, m_last{}, m_mouse{}; // window coords
     bool m_moved = false, m_shift = false;
