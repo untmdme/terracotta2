@@ -13,6 +13,8 @@ class Window;
 struct WindowDesc {
     std::string title = "Terracotta2";
     int width = 1280, height = 720;       // logical px (content area)
+    int minWidth = 0, minHeight = 0;     // 0 = no limit
+    int maxWidth = 0, maxHeight = 0;     // 0 = no limit
     float x = NAN, y = NAN;               // screen logical px of the content area; NAN = centered
     bool floating = false;                // undocked dock window (ordinary z-order; closing re-docks its tabs)
     bool customTitlebar = false;

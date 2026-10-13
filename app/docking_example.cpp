@@ -688,7 +688,7 @@ int main() {
         // register your own file:  theme().fontFamily = loadFont("/path/to/MyFont.ttf");
         theme().fontFamily = "Helvetica Neue";
 
-        Window* window = app.createWindow({.title = "Terracotta2 - Layout & Text", .width = 1600, .height = 900});
+        Window* window = app.createWindow({.title = "Terracotta2 - Layout & Text", .width = 1600, .height = 900, .minWidth = 800, .minHeight = 500});
         DockSpace& dockSpace = window->root()->add<DockSpace>();
 
         // left column | right column;  left column: tabbed top over console

@@ -291,7 +291,7 @@ Panel& section(Widget& page, const char* title, const char* caption) {
 int main() {
     try {
         Application app;
-        Window* window = app.createWindow({.title = "Terracotta2 - Images & SVG", .width = 980, .height = 760});
+        Window* window = app.createWindow({.title = "Terracotta2 - Images & SVG", .width = 980, .height = 760, .minWidth = 480, .minHeight = 360});
         ScrollView& page = window->root()->add<ScrollView>().padding(20).padding(Edge::Right, 26).gap(16);
         UiQueue ui;
         std::vector<std::jthread> workers; // declared after `app`: joined before the Application dies

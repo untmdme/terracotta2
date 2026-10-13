@@ -41,6 +41,7 @@ struct NativeWindow {
     bool customTitlebar = false; // no caption: the client area reaches the window top (WM_NCCALCSIZE)
     int buttons = 0;             // bitmask of held MouseButtons (for SetCapture / ReleaseCapture)
     wchar_t highSurrogate = 0;   // pending first half of a WM_CHAR surrogate pair
+    int minW = 0, minH = 0, maxW = 0, maxH = 0; // logical client px, 0 = no limit
     Cursor cursor = Cursor::Arrow;
 };
 
@@ -166,6 +167,18 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             w->hwnd = nullptr;
             w->ev = nullptr;
             break;
+
+        case WM_GETMINMAXINFO: {
+            RECT wr, cr;
+            if (IsIconic(hwnd) || !GetWindowRect(hwnd, &wr) || !GetClientRect(hwnd, &cr)) break;
+            const int dx = (wr.right - wr.left) - cr.right, dy = (wr.bottom - wr.top) - cr.bottom; // frame size
+            auto* m = reinterpret_cast<MINMAXINFO*>(lp);
+            if (w->minW > 0) m->ptMinTrackSize.x = (LONG)(w->minW * w->scale) + dx;
+            if (w->minH > 0) m->ptMinTrackSize.y = (LONG)(w->minH * w->scale) + dy;
+            if (w->maxW > 0) m->ptMaxTrackSize.x = (LONG)(w->maxW * w->scale) + dx;
+            if (w->maxH > 0) m->ptMaxTrackSize.y = (LONG)(w->maxH * w->scale) + dy;
+            return 0;
+        }
 
         case WM_SIZE:
             if (wp != SIZE_MINIMIZED && live(w)) w->ev->onResize();
@@ -426,6 +439,7 @@ NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeW
         w->ready = true;
         return w;
     }
+    w->minW = desc.minWidth; w->minH = desc.minHeight; w->maxW = desc.maxWidth; w->maxH = desc.maxHeight;
     w->customTitlebar = desc.customTitlebar; // before CreateWindowExW: WM_NCCALCSIZE arrives during it
     // Floating windows are unowned with a taskbar entry: ordinary z-order (they can go behind
     // the main window) and still reachable via the taskbar / Alt+Tab.

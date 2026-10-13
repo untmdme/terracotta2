@@ -7,6 +7,7 @@
 #include <Carbon/Carbon.h> // kVK_* key codes only; no Carbon linkage needed
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 
 using Terracotta2::Key;
@@ -323,6 +324,9 @@ NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeW
             win.titlebarAppearsTransparent = YES;
             win.titleVisibility = NSWindowTitleHidden;
         }
+        if (desc.minWidth > 0 || desc.minHeight > 0) win.contentMinSize = NSMakeSize(desc.minWidth, desc.minHeight);
+        if (desc.maxWidth > 0 || desc.maxHeight > 0)
+            win.contentMaxSize = NSMakeSize(desc.maxWidth > 0 ? desc.maxWidth : FLT_MAX, desc.maxHeight > 0 ? desc.maxHeight : FLT_MAX);
         if (centered) [win center];
 
         TCView* view = [[TCView alloc] initWithFrame:[win contentRectForFrameRect:win.frame]];

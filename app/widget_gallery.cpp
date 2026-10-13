@@ -85,7 +85,7 @@ Panel& tile(Widget& row, const char* caption) {
 int main() {
     try {
         Application app;
-        Window* window = app.createWindow({.title = "Terracotta2 - Widget Gallery", .width = 1100, .height = 760});
+        Window* window = app.createWindow({.title = "Terracotta2 - Widget Gallery", .width = 1100, .height = 760, .minWidth = 560, .minHeight = 400});
         ScrollView& page = window->root()->add<ScrollView>().padding(20).padding(Edge::Right, 26).gap(16);
 
         // Designer: theme editor + widget inspector in its own window; edits apply live.
@@ -224,7 +224,7 @@ int main() {
         // Custom title bar: a window that draws its own bar (see also custom_titlebar.cpp).
         section(page, "Custom title bar", "WindowDesc{.customTitlebar = true} + TitleBar + WindowButtons. The bar drags the window; buttons in it stay clickable.")
             .add<Button>("Open a window with a custom title bar").onClick([] {
-                Window* w = Application::get().createWindow({.title = "Custom title bar", .width = 420, .height = 220, .customTitlebar = true});
+                Window* w = Application::get().createWindow({.title = "Custom title bar", .width = 420, .height = 220, .minWidth = 260, .minHeight = 120, .customTitlebar = true});
                 w->root()->add<TitleBar>().build([](TitleBar& bar) {
                     bar.add<Label>("My tool window").weight(600).grow(1);
                     bar.add<WindowButtons>();
