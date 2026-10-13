@@ -1,0 +1,80 @@
+{
+  "packages": [
+{
+  "SPDXID" : "SPDXRef-resource-0",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "3c1c2f71508547adbe564dc0da8215e6d54c64176e611ba7e597db2f38d93cba2e735dc6f672585da8ed7ae0ad0c0784f02adcdda85026fe6def3b87fc4349d5"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/google/dawn@v20260911.162847",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "google/dawn"
+},
+{
+  "SPDXID" : "SPDXRef-resource-1",
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://chromium.googlesource.com/chromium/src/third_party/jinja2@c3027d884967773057bf74b957e3fea87e5df4d7",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "https://chromium.googlesource.com/chromium/src/third_party/jinja2"
+},
+{
+  "SPDXID" : "SPDXRef-resource-2",
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://chromium.googlesource.com/chromium/src/third_party/markupsafe@4256084ae14175d38a3ff7d739dca83ae49ccec6",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "https://chromium.googlesource.com/chromium/src/third_party/markupsafe"
+},
+{
+  "SPDXID" : "SPDXRef-resource-3",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "90a60f8538b704b9c4e799d044c2e14673d6a42742d17315cd65e2ef7870fb094eb74450bf12a768a539c920d2cb9962fc83e328594ef72507f6b882915eb5ab"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/KhronosGroup/SPIRV-Headers@04fd3caa1e8267e4d95c806cad901181728e1006",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "KhronosGroup/SPIRV-Headers"
+},
+{
+  "SPDXID" : "SPDXRef-resource-4",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "2c06b7fc6fdf51fdb27ee5c80cc632521f53da14571f5511d34646277580c184a0b52033169437848791e28737f08e612d350f88ba230ff7eb5fc73ef439446b"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/KhronosGroup/SPIRV-Tools@e265f557e3db20843c6d135d2b9eeb51ecc79d73",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "KhronosGroup/SPIRV-Tools"
+},
+{
+  "SPDXID" : "SPDXRef-resource-5",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "ec5a9d1afff0c55b2892e6cf4372d8065220222e5e7b7e639faf5def43d8d5e68f4d5203555449d347009c17bac20ab4975766bc12ddd3ca5c25525815086463"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/webgpu-native/webgpu-headers@b5ff182caa90e53293f47939716281342c0812ba",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "webgpu-native/webgpu-headers"
+}
+  ]
+}

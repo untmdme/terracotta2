@@ -38,6 +38,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(yoga CONFIG REQUIRED)
 find_package(unofficial-skia CONFIG REQUIRED)
 find_package(Dawn CONFIG REQUIRED)
+# Windows' Dawn archive is split into webgpu_dawn.lib + webgpu_dawn_<n>.lib to keep each file under
+# GitHub's 100 MB limit; link the extra parts with it (MSVC's linker rescans them for cross-references).
+file(GLOB TC2_DAWN_PARTS "${TC2_DEPS_DIR}/lib/webgpu_dawn_*.lib")
+if(TC2_DAWN_PARTS)
+    set_property(TARGET dawn::webgpu_dawn APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${TC2_DAWN_PARTS})
+endif()
 
 # All src/**/*.cpp; CONFIGURE_DEPENDS re-globs on build so new files are picked up.
 # Platform_win.cpp is #ifdef _WIN32, so it compiles to nothing elsewhere.

@@ -1,0 +1,20 @@
+{
+  "packages": [
+{
+  "SPDXID" : "SPDXRef-resource-0",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "60845024b70c52cc98ee3144a7b3889da98285033db631e53c4cbd6e036d33f4ce66b2ff85890318d54a01558410c49ee7622c24d5b1650f73e7734dd1ecc1ad"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "https://chrome-infra-packages.appspot.com/dl/gn/gn/windows-amd64/+/2lRFka6-TQLmU7YpwecZP2tJYOs9kkRN8y-8y_HWwWIC",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "gn-windows-amd64.zip",
+  "packageFileName" : "gn-windows-amd64.zip"
+}
+  ]
+}

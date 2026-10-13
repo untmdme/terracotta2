@@ -1,0 +1,35 @@
+{
+  "packages": [
+{
+  "SPDXID" : "SPDXRef-resource-0",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "f52286fcac1d1b2b45046d7df72cee384b664f0b512c4b4a76bca743747f2113fef6991059b4e71ad804d0209103003ba0f01aa90afac786de20a52e8484018d"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/google/skia@e7c90ecca9444fe09598f1630ab7cee2c0ee027a",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "google/skia"
+},
+{
+  "SPDXID" : "SPDXRef-resource-1",
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://android.googlesource.com/platform/external/piex.git@bb217acdca1cc0c16b704669dd6f91a1b509c406",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "https://android.googlesource.com/platform/external/piex.git"
+},
+{
+  "SPDXID" : "SPDXRef-resource-2",
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/google/wuffs-mirror-release-c.git@e3f919ccfe3ef542cfc983a82146070258fb57f8",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "https://github.com/google/wuffs-mirror-release-c.git"
+}
+  ]
+}

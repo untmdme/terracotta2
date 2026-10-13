@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: harfbuzz
+Description: HarfBuzz text shaping library
+Version: 14.5.1
+
+Libs: "-L${libdir}" -lharfbuzz
+Cflags: "-I${includedir}/harfbuzz"
