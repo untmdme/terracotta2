@@ -1,4 +1,2 @@
-vcpkg_installed/
 build*/
-.vcpkg-logs/
 .DS_Store

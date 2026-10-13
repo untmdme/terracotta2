@@ -28,15 +28,7 @@ Two presets, each with its own build directory:
 
 Both link the same release-built Skia, Dawn and Yoga. The dependency folder is picked from the host: `deps/arm64-osx` on macOS, `deps/x64-windows` or `deps/arm64-windows` on Windows. Override it with `-DTC2_DEPS_DIR=...`. Each folder is a vcpkg install tree (`vcpkg_installed/<triplet>` without `tools/`) built from the `arm64-osx-release`, `x64-windows-static-md-release` and `arm64-windows-static-md` triplets. Keep them static: a DLL build of Skia has no SVG module and does not export the skparagraph symbols. The Windows `.lib` files are stripped of their `/Z7` debug info (`llvm-objcopy --strip-debug --remove-section=.chks64`), and `webgpu_dawn.lib` is split into `webgpu_dawn.lib` + `webgpu_dawn_<n>.lib` so every file stays under GitHub's 100 MB limit; `CMakeLists.txt` links the extra parts.
 
-The example apps do not compile `src/`: they link the prebuilt library in `prebuilt/<platform>` (`libTerracotta2.a`, headers and CMake config, as made by `cmake --install`). After changing `src/` or `include/`, rebuild and reinstall it:
-
-```bash
-cmake --preset release -DTC2_FROM_SOURCE=ON
-cmake --build --preset release -j
-cmake --install build/release --prefix prebuilt/arm64-osx   # Windows: prebuilt/x64-windows
-```
-
-`-DTC2_FROM_SOURCE=ON` also builds the apps straight from `src/`. Turn it back off to use the prebuilt library again.
+Terracotta2 itself is prebuilt too: `prebuilt/<platform>` holds the static library (`libTerracotta2.a`, `Terracotta2.lib` on Windows), its headers and its CMake config. This repository has no library source; the example apps only link the prebuilt library.
 
 `build/<preset>/app/Core_Test` checks focus order, list virtualization, multi-line editing, menu keys and tooltips in a live window. `Node_Editor_Test` checks the node editor's model, and `Node_Editor --bench` drives the whole editor through scripted input.
 
@@ -44,21 +36,21 @@ To add your own app, create a `.cpp` file in `app/` and register it in `app/CMak
 
 ```cmake
 add_executable(My_App my_app.cpp)
-target_link_libraries(My_App PRIVATE Terracotta2)
+target_link_libraries(My_App PRIVATE Terracotta2::Terracotta2)
 ```
 
 ## Using it in your own project
 
-Terracotta2 is a CMake library target. When it is not the top-level project, it does not build the example apps (set `TC2_BUILD_APPS=ON` to build them anyway). It still adds its `deps/<platform>` folder to `CMAKE_PREFIX_PATH`, so Yoga, Skia and Dawn are found without extra setup.
+Terracotta2 is a prebuilt CMake package. When it is not the top-level project, it does not build the example apps (set `TC2_BUILD_APPS=ON` to build them anyway). It still adds its `deps/<platform>` folder to `CMAKE_PREFIX_PATH`, so Yoga, Skia and Dawn are found without extra setup.
 
 As a subdirectory or git submodule:
 
 ```cmake
 add_subdirectory(external/terracotta2)
-target_link_libraries(My_App PRIVATE Terracotta2)
+target_link_libraries(My_App PRIVATE Terracotta2::Terracotta2)
 ```
 
-Or install it (`cmake --install build/release --prefix <dir>`) and find it:
+Or find it directly, with `prebuilt/<platform>` and `deps/<platform>` on `CMAKE_PREFIX_PATH`:
 
 ```cmake
 find_package(Terracotta2 CONFIG REQUIRED)
@@ -280,4 +272,4 @@ The example apps in `app/` are the best reference after this page:
 | `node_editor/` | A full app: zoomable node graph, timeline, virtual lists, context menus and dropdowns |
 | `benchmark.cpp` | Frame timings for layout, paint and submit (run with `--interactive` to view a scene) |
 
-The headers in `include/terracotta2/` are commented. `UI/Widget.hpp` covers layout, input, animation and manual layout.
+The headers in `prebuilt/<platform>/include/terracotta2/` are commented. `UI/Widget.hpp` covers layout, input, animation and manual layout.
