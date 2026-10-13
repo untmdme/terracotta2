@@ -1,0 +1,5 @@
+include(CMakeFindDependencyMacro)
+find_dependency(yoga CONFIG)
+find_dependency(unofficial-skia CONFIG)
+find_dependency(Dawn CONFIG)
+include("${CMAKE_CURRENT_LIST_DIR}/Terracotta2Targets.cmake")

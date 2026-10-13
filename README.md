@@ -28,6 +28,16 @@ Two presets, each with its own build directory:
 
 Both link the same release-built Skia, Dawn and Yoga. The dependency folder is picked from the host: `deps/arm64-osx` on macOS, `deps/x64-windows` or `deps/arm64-windows` on Windows. Override it with `-DTC2_DEPS_DIR=...`. Each folder is a vcpkg install tree (`vcpkg_installed/<triplet>` without `tools/`) built from the `arm64-osx-release`, `x64-windows-static-md-release` and `arm64-windows-static-md` triplets. Keep them static: a DLL build of Skia has no SVG module and does not export the skparagraph symbols. The Windows `.lib` files are stripped of their `/Z7` debug info (`llvm-objcopy --strip-debug --remove-section=.chks64`), and `webgpu_dawn.lib` is split into `webgpu_dawn.lib` + `webgpu_dawn_<n>.lib` so every file stays under GitHub's 100 MB limit; `CMakeLists.txt` links the extra parts.
 
+The example apps do not compile `src/`: they link the prebuilt library in `prebuilt/<platform>` (`libTerracotta2.a`, headers and CMake config, as made by `cmake --install`). After changing `src/` or `include/`, rebuild and reinstall it:
+
+```bash
+cmake --preset release -DTC2_FROM_SOURCE=ON
+cmake --build --preset release -j
+cmake --install build/release --prefix prebuilt/arm64-osx   # Windows: prebuilt/x64-windows
+```
+
+`-DTC2_FROM_SOURCE=ON` also builds the apps straight from `src/`. Turn it back off to use the prebuilt library again.
+
 `build/<preset>/app/Core_Test` checks focus order, list virtualization, multi-line editing, menu keys and tooltips in a live window. `Node_Editor_Test` checks the node editor's model, and `Node_Editor --bench` drives the whole editor through scripted input.
 
 To add your own app, create a `.cpp` file in `app/` and register it in `app/CMakeLists.txt`:

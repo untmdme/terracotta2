@@ -1,26 +1,26 @@
 add_executable(Docking docking_example.cpp)
-target_link_libraries(Docking PRIVATE Terracotta2)
+target_link_libraries(Docking PRIVATE Terracotta2::Terracotta2)
 
 add_executable(Benchmark benchmark.cpp)
-target_link_libraries(Benchmark PRIVATE Terracotta2)
+target_link_libraries(Benchmark PRIVATE Terracotta2::Terracotta2)
 
 add_executable(Hello_World hello_world.cpp)
-target_link_libraries(Hello_World PRIVATE Terracotta2)
+target_link_libraries(Hello_World PRIVATE Terracotta2::Terracotta2)
 
 add_executable(Custom_Titlebar custom_titlebar.cpp)
-target_link_libraries(Custom_Titlebar PRIVATE Terracotta2)
+target_link_libraries(Custom_Titlebar PRIVATE Terracotta2::Terracotta2)
 
 add_executable(Widget_Gallery widget_gallery.cpp)
-target_link_libraries(Widget_Gallery PRIVATE Terracotta2)
+target_link_libraries(Widget_Gallery PRIVATE Terracotta2::Terracotta2)
 
 add_executable(Node_Editor node_editor/main.cpp)
-target_link_libraries(Node_Editor PRIVATE Terracotta2)
+target_link_libraries(Node_Editor PRIVATE Terracotta2::Terracotta2)
 
 add_executable(Node_Editor_Test node_editor/model_test.cpp)
-target_link_libraries(Node_Editor_Test PRIVATE Terracotta2)
+target_link_libraries(Node_Editor_Test PRIVATE Terracotta2::Terracotta2)
 
 add_executable(Core_Test core_test.cpp)
-target_link_libraries(Core_Test PRIVATE Terracotta2)
+target_link_libraries(Core_Test PRIVATE Terracotta2::Terracotta2)
 
 set(TC2_APPS Docking Benchmark Hello_World Custom_Titlebar Widget_Gallery Node_Editor)
 
@@ -28,7 +28,7 @@ set(TC2_APPS Docking Benchmark Hello_World Custom_Titlebar Widget_Gallery Node_E
 # so a DLL triplet such as x64-windows-release has no svg target.
 if(TARGET unofficial::skia::modules::svg)
     add_executable(Media_Example media_example.cpp)
-    target_link_libraries(Media_Example PRIVATE Terracotta2 unofficial::skia::modules::svg)
+    target_link_libraries(Media_Example PRIVATE Terracotta2::Terracotta2 unofficial::skia::modules::svg)
     target_compile_definitions(Media_Example PRIVATE TC2_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets")
     list(APPEND TC2_APPS Media_Example)
 else()
