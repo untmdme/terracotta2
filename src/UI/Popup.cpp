@@ -30,6 +30,7 @@ private:
 } // namespace
 
 Overlay::Overlay() {
+    inspect(Inspect::Hide);
     absolute(0, 0);
     setVisible(false); // nothing to show in its own window: it only owns the popup window
 }
@@ -49,7 +50,7 @@ Window* Overlay::createWindow(Window& owner, const SkRect& anchor, float cornerR
     const SkPoint screen = owner.toScreen({anchor.left(), anchor.top()});
     Window* w = owner.app().createWindow({.title = "Popup", .width = 1, .height = 1, .x = screen.x(), .y = screen.y(), .popup = true,
                                           .anchorHeight = anchor.height(), .owner = &owner, .cornerRadius = cornerRadius});
-    w->setTheme(owner.theme());
+    w->setTheme(&theme()); // the opener's: callers run inside its (widget or window) theme
     return w;
 }
 

@@ -171,7 +171,7 @@ page.add<Slider>(0, 100).value(50).onChange([](float v) { /* ... */ });
 | `Canvas` | `Canvas(fn)` | `fn(canvas, bounds)` draws with Skia |
 | `DragNumber` | `DragNumber(get, set, min, max)` | Drag horizontally to edit a number. `refresh` re-reads `get` |
 | `ColorPicker` | `ColorPicker(get, set)` | HSV square, hue and alpha bars, hex field. `refresh` re-reads `get` |
-| `DockSpace` | `DockSpace()` | `splitHorizontal`, `splitVertical`, then `addTab` on the returned nodes, `customFloatingTitlebar()`. Tabs can be dragged into new windows (native title bar, or ImGui-style with the tab bar as title bar) |
+| `DockSpace` | `DockSpace()` | `splitHorizontal`, `splitVertical`, then `addTab` on the returned nodes, `customFloatingTitlebar()`, `setCentral(content)` (your own UI in the middle, tabs dock on its edges), `dock()`, `revealTab()`, `closeTab()`. Tabs can be dragged into new windows (native title bar, or ImGui-style with the tab bar as title bar) |
 
 `DragNumber` and `ColorPicker` are editors bound to data that lives elsewhere, so they read and write through `get` and `set` functions instead of holding a value. Call `refresh()` when that data changes.
 
@@ -185,7 +185,7 @@ page.add<Slider>(0, 100).value(50).onChange([](float v) { /* ... */ });
 
 **Keyboard.** Tab and Shift+Tab move focus between buttons, fields and other controls, and scroll the focused one into view. Space or Enter clicks a focused button.
 
-**Custom title bars.** Create the window with `.customTitlebar = true` and add a `TitleBar` as the root's first child. Your widgets go inside it. Its empty parts and plain widgets such as labels drag the window, and a double-click maximizes it, using the OS's own behavior on each platform. Buttons and other interactive widgets in it stay clickable. macOS keeps its native traffic-light buttons, and `TitleBar` leaves room for them. On Windows, add `WindowButtons` at the end for minimize, maximize and close.
+**Custom title bars.** Create the window with `.customTitlebar = true` and add a `TitleBar` as the root's first child. Your widgets go inside it. Its empty parts and plain widgets such as labels drag the window, and a double-click maximizes it, using the OS's own behavior on each platform. Buttons and other interactive widgets in it stay clickable. macOS keeps its native traffic-light buttons, and `TitleBar` leaves room for them. On Windows, add `WindowButtons` at the end for minimize, maximize and close. Colors come from `theme().titleBar`.
 
 ```cpp
 Window* window = app.createWindow({.title = "My App", .customTitlebar = true});
@@ -199,9 +199,13 @@ window->root()->add<TitleBar>().build([](TitleBar& bar) {
 
 Labels wrap to the width their container gives them. To use your own font, call `loadFont("path.ttf")` and pass the family name it returns to `.font()`.
 
-Colors and sizes for every widget come from `theme()` (see `Theme/Theme.hpp`).
+Colors and sizes for every widget come from `theme()` (see `Theme/Theme.hpp`). A window can have its own theme (`Window::setTheme`), and so can any subtree (`Widget::setTheme`): it keeps that theme wherever it moves, e.g. a docked tab dragged into another window. To change a few values for one widget, use `themeOverride`. It edits a copy of the inherited theme, and the copy keeps following the app theme for everything else:
 
-`openDesigner()` (from `Tools/Designer.hpp`) opens a window that edits every theme value live and lets you inspect the layout of any widget.
+```cpp
+row.add<Button>("Pill").themeOverride([](Theme& t) { t.button.cornerRadius = 999; });
+```
+
+`openDesigner()` (from `Tools/Designer.hpp`) docks a designer sidebar to the right of the main window, like browser dev tools. Drag its tab out into its own window and back onto the window's right edge. It keeps its own look while you edit the theme. Its Inspector tab shows the widget tree above the selected widget's properties, split like browser dev tools (drag the bar between them). Pick any widget or click it in the tree (Esc cancels or deselects). The selection shows its margin, padding and content, and you can edit its layout live and copy its style as C++. The Theme tab edits every theme value, with a filter.
 
 ## Writing your own widgets
 

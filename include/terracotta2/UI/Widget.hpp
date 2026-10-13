@@ -8,6 +8,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkRect.h"
 #include "terracotta2/Core/Animation.hpp"
+#include "terracotta2/Theme/Theme.hpp"
 
 namespace Terracotta2 {
 
@@ -157,6 +158,10 @@ public:
     // without its own tooltip) for theme().tooltip.delaySec. "" = none.
     template <class Self> Self& tooltip(this Self& s, std::string text) { s.m_tooltip = std::move(text); return s; }
     const std::string& tooltip() const { return m_tooltip; }
+    // Debug tools (the designer's widget tree and picker): framework plumbing to leave out.
+    enum class Inspect { Shown, Skip /* its children show in its place */, Hide /* with its subtree */ };
+    template <class Self> Self& inspect(this Self& s, Inspect v) { s.m_inspect = v; return s; }
+    Inspect inspect() const { return m_inspect; }
     bool isVisible() const { return m_visible; }
     bool clipsChildren() const { return m_clip_children; }
 
@@ -237,9 +242,23 @@ public:
     // applyTheme() calls this on every widget: re-apply theme values copied at construction
     // (Yoga sizes/paddings, cached text). Values read in onDraw need nothing.
     virtual void onThemeChanged() {}
+    void notifyThemeChanged(); // onThemeChanged() on this subtree, each widget under its own theme
+
+    // ---- theme ----
+    // This subtree's own theme instead of its window's (nullptr: inherit). Only the pointer is kept.
+    // In effect while the subtree lays out, paints and handles input, and it moves with the subtree
+    // (e.g. a docked tab dragged into another window). Build its widgets inside a ThemeScope(t).
+    void setTheme(Theme* t); // also drops a themeOverride()
+    Theme* ownTheme() const { return m_theme; }
+    // Local theme overrides for this subtree, e.g. one pill-shaped button:
+    //   row.add<Button>("Go").themeOverride([](Theme& t) { t.button.cornerRadius = 999; });
+    // `patch` edits a copy of the theme the widget would otherwise get, and runs again whenever that
+    // changes (applyTheme), so everything it leaves alone keeps following the app theme.
+    template <class Self> Self& themeOverride(this Self& s, std::function<void(Theme&)> patch) { s.setThemeOverride(std::move(patch)); return s; }
 
 protected:
     void setVisible(bool visible);
+    void setThemeOverride(std::function<void(Theme&)> patch);
     void setManualLayout(bool on);
     void setChildTransform(float scale, SkPoint origin);
     // Offset applied to all children's absolute positions (e.g. ScrollView: {0, -scrollY}).
@@ -260,6 +279,10 @@ private:
     std::string m_tooltip;
     std::vector<std::unique_ptr<Widget>> m_children;
     YGNodeRef m_yg_node;
+    Theme* m_theme = nullptr;
+    std::function<void(Theme&)> m_themePatch; // themeOverride(): m_theme points at m_patched
+    std::unique_ptr<Theme> m_patched;
+    Inspect m_inspect = Inspect::Shown;
     bool m_layout_dirty = true;
     bool m_visible = true;
     bool m_clip_children = true;
@@ -271,6 +294,16 @@ private:
     SkPoint m_origin{0, 0};
     SkPoint toChildSpace(SkPoint p) const { return {(p.x() - m_bounds.left()) / m_scale + m_origin.x(), (p.y() - m_bounds.top()) / m_scale + m_origin.y()}; }
     SkPoint fromChildSpace(SkPoint p) const { return {m_bounds.left() + (p.x() - m_origin.x()) * m_scale, m_bounds.top() + (p.y() - m_origin.y()) * m_scale}; }
+};
+
+// ThemeScope for code acting on `w` from outside the layout / paint walks (event dispatch, Yoga
+// measure functions): the nearest setTheme() at or above w, else w's window theme, else theme().
+class WidgetThemeScope {
+public:
+    explicit WidgetThemeScope(const Widget* w);
+
+private:
+    ThemeScope m_scope;
 };
 
 } // namespace Terracotta2

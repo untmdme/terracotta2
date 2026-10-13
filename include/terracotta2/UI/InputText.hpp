@@ -51,6 +51,8 @@ private:
     SkRect caretRect(); // paragraph-local
     float lineHeight();
     void scrollCaretIntoView();
+    void restartBlink(); // caret shown now, then blinking while focused
+    void stopBlink();
     size_t hit(float x, float y);
 
     const bool m_multiline;
@@ -66,6 +68,8 @@ private:
     float m_scrollX = 0.0f; // single line: text scrolled left by this much to keep the caret in view
     float m_scrollY = 0.0f; // multi-line: text scrolled up by this much when taller than the field
     bool m_followCaret = false; // multi-line: scroll to the caret on the next paint (set by edits and caret moves)
+    bool m_caretOn = true;      // blink phase
+    int m_blinkTimer = 0;       // Application timer id, 0 = none
 };
 
 // Multi-line text field: Enter inserts a newline, text wraps to the width it gets and the field

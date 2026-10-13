@@ -386,6 +386,10 @@ SkPoint contentScreenPos(NativeWindow* w) {
     NSRect cr = [w->window contentRectForFrameRect:w->window.frame];
     return SkPoint::Make((float)cr.origin.x, (float)(primaryHeight() - NSMaxY(cr)));
 }
+SkPoint cursorScreenPos(NativeWindow*) {
+    const NSPoint p = [NSEvent mouseLocation]; // bottom-left origin
+    return SkPoint::Make((float)p.x, (float)(primaryHeight() - p.y));
+}
 void setContentScreenPos(NativeWindow* w, SkPoint p) {
     NSRect fr = w->window.frame;
     NSRect cr = [w->window contentRectForFrameRect:fr];
@@ -475,9 +479,10 @@ void pollEvents() {
     }
 }
 
-void waitEvents() {
+void waitEvents(double timeoutSec) {
     @autoreleasepool {
-        NSEvent* e = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:[NSDate distantFuture]
+        NSDate* until = timeoutSec < 0 ? [NSDate distantFuture] : [NSDate dateWithTimeIntervalSinceNow:timeoutSec];
+        NSEvent* e = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:until
                                            inMode:NSDefaultRunLoopMode dequeue:YES];
         if (e) {
             [NSApp sendEvent:e];

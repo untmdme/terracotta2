@@ -71,6 +71,13 @@ struct TooltipStyle {
     float delaySec = 0.5f; // pointer at rest this long before it shows
 };
 
+struct TitleBarStyle { // custom title bars: TitleBar, WindowButtons
+    SkColor background = SkColorSetRGB(35, 35, 35);
+    SkColor buttonIcon = SkColorSetRGB(220, 220, 220); // minimize / maximize / close glyphs (Windows)
+    SkColor closeHover = SkColorSetRGB(196, 43, 28);   // close button background, hovered
+    SkColor closePressed = SkColorSetRGB(200, 64, 49); // ... and pressed
+};
+
 struct Theme {
     SkColor globalBackground = SkColorSetRGB(20, 20, 20);
     SkColor panelBackground = SkColorSetRGB(35, 35, 35);
@@ -86,6 +93,7 @@ struct Theme {
     ScrollStyle scroll;
     PopupStyle popup;
     TooltipStyle tooltip;
+    TitleBarStyle titleBar;
 };
 
 // The app theme (mutable). Defaults to darkTheme(). After changing it at runtime call
@@ -93,8 +101,8 @@ struct Theme {
 Theme& appTheme();
 void applyTheme();
 
-// The theme in effect: the app theme, except while a window with its own theme
-// (Window::setTheme) lays out, paints or handles input. Widgets read this one.
+// The theme in effect: the app theme, except while a window or widget subtree with its own theme
+// (Window::setTheme, Widget::setTheme) lays out, paints or handles input. Widgets read this one.
 Theme& theme();
 
 // While alive, theme() returns `t` (nullptr: the app theme). Use it when building widgets

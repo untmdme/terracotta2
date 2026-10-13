@@ -22,6 +22,7 @@ static constexpr float kSplitRatio = 0.3f; // share of the new pane when docking
 class DockTabBar : public Widget {
 public:
     DockTabBar() {
+        inspect(Inspect::Hide);
         direction(Direction::Row);
         height(theme().dock.tabHeight);
         shrink(0);
@@ -34,7 +35,17 @@ public:
     }
     // Custom-titlebar window (ImGui-style floating window): the tab bars are the title bar. Their
     // empty parts drag the window, and the bars along the top edge leave room for the caption buttons.
-    bool dragsWindow() const override { return true; }
+    // In a floating window holding one tab they drag that tab instead (the window follows), so it can
+    // be dropped onto a dock space: an OS window move could not dock.
+    bool dragsWindow() const override { return !loneFloatingTab(); }
+    bool onMouseDown(const MouseEvent& e) override {
+        if (e.button != MouseButton::Left || !loneFloatingTab()) return false;
+        m_pressed = true;
+        m_press = {e.x, e.y};
+        return true;
+    }
+    bool onMouseMove(const MouseEvent& e) override;
+    bool onMouseUp(const MouseEvent&) override { return std::exchange(m_pressed, false); }
     void onLayout() override {
         Window* w = window();
         const bool top = w && w->hasCustomTitlebar() && m_bounds.top() < 1;
@@ -45,7 +56,10 @@ public:
     }
 
 private:
+    bool loneFloatingTab() const;
     float m_insetL = 0, m_insetR = 0;
+    bool m_pressed = false;
+    SkPoint m_press{0, 0};
 };
 
 class DockTabButton : public Widget {
@@ -124,6 +138,7 @@ private:
 class DockSplitter : public Widget {
 public:
     explicit DockSplitter(bool horizontal) : m_horizontal(horizontal) {
+        inspect(Inspect::Hide);
         if (horizontal) width(theme().dock.splitterSize);
         else height(theme().dock.splitterSize);
         shrink(0);
@@ -173,6 +188,7 @@ private:
 // ---------------------------------------------------------------- DockNode
 
 DockNode::DockNode() {
+    inspect(Inspect::Skip);
     direction(Direction::Column);
     grow(1.0f);
     shrink(1.0f);
@@ -191,10 +207,28 @@ DockSpace* DockNode::dockSpace() const {
 void DockNode::ensureLeafChrome() {
     if (!isLeaf() || m_tabBar) return;
     m_tabBar = &add<DockTabBar>();
-    m_contentArea = &add<Widget>();
+    m_contentArea = &add<Widget>().inspect(Inspect::Skip);
     m_contentArea->direction(Direction::Column);
     m_contentArea->grow(1.0f);
     m_contentArea->clipChildren(true);
+}
+
+Widget* DockNode::makeCentral(std::unique_ptr<Widget> content) {
+    assert(isLeaf() && m_tabs.empty());
+    m_central = true;
+    m_tabBar->visible(false);
+    Widget* c = m_contentArea->adopt(std::move(content));
+    c->grow(1.0f);
+    return c;
+}
+
+// The leaf and tab index showing `content`, if it is a tab's content.
+std::pair<DockNode*, int> DockSpace::tabOf(Widget* content) {
+    auto* leaf = content && content->parent() ? dynamic_cast<DockNode*>(content->parent()->parent()) : nullptr;
+    if (!leaf || leaf->isCentral()) return {nullptr, -1};
+    for (int i = 0; i < leaf->tabCount(); ++i)
+        if (leaf->m_tabs[i].content == content) return {leaf, i};
+    return {nullptr, -1};
 }
 
 void DockNode::applyActive() {
@@ -229,6 +263,10 @@ std::pair<DockNode*, DockNode*> DockNode::split(bool horizontal, float ratio, bo
         existing->addTab(std::move(title), std::move(content));
     }
     if (active >= 0) existing->setActiveTab(active);
+    if (m_central) { // the central content moves with the role
+        existing->makeCentral(m_contentArea->detach(m_contentArea->children().front().get()));
+        m_central = false;
+    }
 
     clearChildren(); // leaf chrome (tab bar is empty now)
     m_tabBar = m_contentArea = nullptr;
@@ -255,7 +293,7 @@ void DockNode::setRatio(float ratio) {
 }
 
 Widget* DockNode::addTab(std::string title, std::unique_ptr<Widget> content) {
-    assert(isLeaf());
+    assert(isLeaf() && !m_central);
     ensureLeafChrome();
     Widget* button = &m_tabBar->add<DockTabButton>(title);
     Widget* c = content ? m_contentArea->adopt(std::move(content)) : nullptr;
@@ -310,6 +348,7 @@ std::unique_ptr<Widget> DockNode::takeTab(int index, std::string* titleOut) {
 // ---------------------------------------------------------------- DockSpace
 
 DockSpace::DockSpace() {
+    inspect(Inspect::Skip);
     direction(Direction::Column);
     grow(1.0f);
     add<DockNode>();
@@ -325,6 +364,36 @@ static DockSpace* findDockSpace(Widget* w) {
 }
 
 DockSpace* DockSpace::of(Window* window) { return window ? findDockSpace(window->root()) : nullptr; }
+
+Widget* DockSpace::setCentral(std::unique_ptr<Widget> content) {
+    DockNode* root = rootNode();
+    assert(root->isLeaf() && root->tabCount() == 0 && !root->isCentral());
+    return root->makeCentral(std::move(content));
+}
+
+DockNode* DockSpace::centralNode() const {
+    std::function<DockNode*(DockNode*)> find = [&](DockNode* n) -> DockNode* {
+        if (n->isLeaf()) return n->isCentral() ? n : nullptr;
+        if (DockNode* c = find(n->first())) return c;
+        return find(n->second());
+    };
+    return find(rootNode());
+}
+
+DockNode* DockSpace::dock(std::string title, std::unique_ptr<Widget> content, DockNode* target, DropZone zone, float ratio) {
+    if (!target || !target->isLeaf() || zone == DropZone::None) return nullptr;
+    if (zone == DropZone::Center && target->isCentral()) zone = DropZone::Right;
+    DockNode* dest = target;
+    if (zone != DropZone::Center) {
+        const bool horiz = zone == DropZone::Left || zone == DropZone::Right;
+        const bool newFirst = zone == DropZone::Left || zone == DropZone::Top;
+        auto [f, s] = target->split(horiz, newFirst ? ratio : 1.0f - ratio, newFirst);
+        dest = newFirst ? f : s;
+    }
+    dest->addTab(std::move(title), std::move(content));
+    return dest;
+}
+
 
 // ---------------------------------------------------------------- drag session
 // One global session. Tab widgets only call beginTabDrag; everything after runs from
@@ -439,6 +508,43 @@ struct DockDrag {
 };
 DockDrag::State DockDrag::g;
 
+bool DockTabBar::loneFloatingTab() const {
+    Window* w = window();
+    auto* node = dynamic_cast<DockNode*>(parent());
+    DockSpace* space = node ? node->dockSpace() : nullptr;
+    return w && w->isFloating() && space && DockDrag::totalTabs(space) == 1 && node->tabCount() == 1;
+}
+
+bool DockTabBar::onMouseMove(const MouseEvent& e) {
+    if (!m_pressed || std::hypot(e.x - m_press.x(), e.y - m_press.y()) <= kDragThreshold) return m_pressed;
+    m_pressed = false;
+    auto* node = static_cast<DockNode*>(parent());
+    const SkRect tab = node->m_tabs[0].button->bounds();
+    // The global drag owns the pointer from here; the window follows with the cursor where it was grabbed.
+    node->dockSpace()->beginTabDrag(node, 0, {m_press.x() - tab.left(), m_press.y() - tab.top()});
+    return true;
+}
+
+bool DockSpace::revealTab(Widget* content) {
+    auto [leaf, i] = tabOf(content);
+    if (!leaf) return false;
+    leaf->setActiveTab(i);
+    if (Window* w = leaf->window()) w->raise();
+    return true;
+}
+
+bool DockSpace::closeTab(Widget* content) {
+    auto [leaf, i] = tabOf(content);
+    DockSpace* space = leaf ? leaf->dockSpace() : nullptr;
+    if (!space) return false;
+    if (DockDrag::g.active) space->cancelTabDrag();
+    auto owned = leaf->takeTab(i);
+    space->tidy(leaf);
+    // Destroyed after the current event: the caller may be a button inside it.
+    Application::get().post([dying = std::shared_ptr<Widget>(std::move(owned))] {});
+    return true;
+}
+
 DockSpace::~DockSpace() { DockDrag::spaceDestroyed(this); }
 
 bool DockSpace::isDragging() { return DockDrag::g.active; }
@@ -483,7 +589,17 @@ static void redockAll(Window* win) {
         if (DockNode* r = firstWithTabs(n->first())) return r;
         return firstWithTabs(n->second());
     };
-    while (DockNode* leaf = firstWithTabs(fs->rootNode())) ms->moveTab(leaf, 0, target, DockSpace::DropZone::Center);
+    // Into the largest leaf; beside it if that is the central node (then the rest joins that new leaf).
+    // Emptied leaves stay: the floating window is closing.
+    while (DockNode* leaf = firstWithTabs(fs->rootNode())) {
+        if (target->isCentral()) {
+            std::string title;
+            auto content = leaf->takeTab(0, &title);
+            target = ms->dock(std::move(title), std::move(content), target, DockSpace::DropZone::Right, kSplitRatio);
+        } else {
+            ms->moveTab(leaf, 0, target, DockSpace::DropZone::Center);
+        }
+    }
 }
 
 DockNode* DockSpace::floatTab(std::string title, std::unique_ptr<Widget> content, SkRect screenFrame) {
@@ -500,7 +616,7 @@ DockNode* DockSpace::floatTab(std::string title, std::unique_ptr<Widget> content
     space.m_customFloatingTitlebar = m_customFloatingTitlebar;
     if (d.customTitlebar && kWindowButtonsWidth > 0) { // over the top-right tab bar, which leaves room for it
         WindowButtons& b = w->root()->add<WindowButtons>();
-        b.height(theme().dock.tabHeight);
+        b.inspect(Inspect::Hide).height(theme().dock.tabHeight);
         YGNodeStyleSetPositionType(b.yogaNode(), YGPositionTypeAbsolute);
         YGNodeStyleSetPosition(b.yogaNode(), YGEdgeTop, 0);
         YGNodeStyleSetPosition(b.yogaNode(), YGEdgeRight, 0);
@@ -550,6 +666,7 @@ std::pair<DockNode*, DockSpace::DropZone> DockSpace::dropTarget(float x, float y
     };
     auto nearest = *std::min_element(std::begin(edges), std::end(edges), [](auto& p, auto& q) { return p.d < q.d; });
     DropZone zone = nearest.d < kEdgeBand ? nearest.z : DropZone::Center;
+    if (zone == DropZone::Center && leaf->isCentral()) return {nullptr, DropZone::None}; // edges only
 
     if (DockDrag::g.active && leaf == DockDrag::g.node && (zone == DropZone::Center || leaf->tabCount() <= 1))
         return {nullptr, DropZone::None};
@@ -565,16 +682,7 @@ void DockSpace::moveTab(DockNode* source, int tabIndex, DockNode* target, DropZo
 
     std::string title;
     auto content = source->takeTab(tabIndex, &title);
-
-    DockNode* dest = target;
-    if (zone != DropZone::Center) {
-        bool horiz = zone == DropZone::Left || zone == DropZone::Right;
-        bool newFirst = zone == DropZone::Left || zone == DropZone::Top;
-        auto [f, s] = target->split(horiz, newFirst ? kSplitRatio : 1.0f - kSplitRatio, newFirst);
-        dest = newFirst ? f : s;
-    }
-    dest->addTab(std::move(title), std::move(content));
-
+    dock(std::move(title), std::move(content), target, zone, kSplitRatio);
     tidy(source);
 }
 

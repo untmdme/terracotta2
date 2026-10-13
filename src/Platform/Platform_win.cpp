@@ -506,6 +506,12 @@ SkPoint contentScreenPos(NativeWindow* w) {
     return SkPoint::Make((float)p.x / w->scale, (float)p.y / w->scale);
 }
 
+SkPoint cursorScreenPos(NativeWindow* w) {
+    POINT p{0, 0};
+    GetCursorPos(&p);
+    return SkPoint::Make((float)p.x / w->scale, (float)p.y / w->scale);
+}
+
 void setContentScreenPos(NativeWindow* w, SkPoint p) {
     // Frame offset (client origin relative to the outer window origin) measured on the live window,
     // which equals AdjustWindowRectExForDpi's result but also covers invisible resize borders.
@@ -599,9 +605,12 @@ void pollEvents() {
     }
 }
 
-void waitEvents() {
+void waitEvents(double timeoutSec) {
     MSG m;
-    if (!PeekMessageW(&m, nullptr, 0, 0, PM_NOREMOVE)) WaitMessage();
+    if (!PeekMessageW(&m, nullptr, 0, 0, PM_NOREMOVE)) {
+        const DWORD ms = timeoutSec < 0 ? INFINITE : (DWORD)std::ceil(timeoutSec * 1000.0);
+        MsgWaitForMultipleObjectsEx(0, nullptr, ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    }
     pollEvents();
 }
 

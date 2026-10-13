@@ -58,14 +58,16 @@ SkISize framebufferSize(NativeWindow* w); // device px
 SkSize logicalSize(NativeWindow* w);
 float contentScale(NativeWindow* w);
 SkPoint contentScreenPos(NativeWindow* w); // top-left of the content area
+SkPoint cursorScreenPos(NativeWindow* w);  // the pointer right now (w: for its DPI scale on Windows)
 void setContentScreenPos(NativeWindow* w, SkPoint p);
 void setTitle(NativeWindow* w, const std::string& title);
 void raise(NativeWindow* w);
 void setCursor(NativeWindow* w, Cursor c);
 std::vector<NativeWindow*> windowsFrontToBack(); // this app's windows only
 
-// Event pump. waitEvents blocks until at least one event (or wake()) then drains the queue.
-void waitEvents();
+// Event pump. waitEvents blocks until at least one event (or wake(), or `timeoutSec` passed when
+// >= 0) then drains the queue.
+void waitEvents(double timeoutSec = -1);
 void pollEvents();
 void wake(); // thread-safe
 

@@ -36,6 +36,7 @@ public:
 class Layer : public Widget {
 public:
     Layer() {
+        inspect(Inspect::Hide);
         absolute(0, 0);
         setVisible(false);
     }

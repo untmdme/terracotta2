@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <thread>
 
 // Not CHECK(): this must also fail in release builds.
@@ -223,6 +224,104 @@ int main() {
     CHECK(plain->presses == 0); // window drag area
     click(goButton->bounds());
     CHECK(clicked == 1);
+
+    // Inspector highlight: a padding change repaints the whole overlay (its padding/content edge
+    // moves although the widget's bounds do not).
+    Window* hl = app.createWindow({.title = "highlight", .width = 300, .height = 200});
+    Panel& boxed = hl->root()->add<Panel>().size(200, 120).padding(10);
+    boxed.add<Label>("inside");
+    hl->setHighlight(&boxed);
+    hl->renderFrame();
+    boxed.padding(40);
+    hl->renderFrame();
+    CHECK(hl->lastFrameStats().damage.contains(boxed.bounds()));
+    hl->close();
+
+    // Designer: docks to the right of the host's own UI, which moves (alive, unchanged) into the
+    // central node of a new DockSpace; keeps its own theme; closing it collapses the dock again.
+    Window* host = app.createWindow({.title = "host", .width = 900, .height = 500});
+    Label& appUi = host->root()->add<Label>("app ui");
+    host->renderFrame();
+    Widget* designer = openDesigner(host);
+    DockSpace* dock = DockSpace::of(host);
+    CHECK(designer && dock && dock->centralNode() && dock->centralNode()->isAncestorOf(&appUi));
+    CHECK(openDesigner(host) == designer); // one at a time
+    host->renderFrame();
+    CHECK(designer->bounds().left() > appUi.bounds().left() + 300 && designer->bounds().width() > 200);
+    const SkColor panelColor = appTheme().panelBackground;
+    appTheme().panelBackground = SK_ColorRED;
+    applyTheme();
+    { WidgetThemeScope scope(designer); CHECK(theme().panelBackground != SK_ColorRED); }
+    { WidgetThemeScope scope(&appUi); CHECK(theme().panelBackground == SK_ColorRED); }
+    appTheme().panelBackground = panelColor;
+    applyTheme();
+    // Drag its tab out of every window: it floats, keeping its theme; drop it on the app UI's right
+    // edge: it docks back. The central node itself never takes it as a tab.
+    std::function<Widget*(Widget*)> findTab = [&](Widget* w) -> Widget* {
+        if (auto* l = dynamic_cast<Label*>(w); l && l->text() == "Designer") return w->parent();
+        for (auto& c : w->children()) if (Widget* r = findTab(c.get())) return r;
+        return nullptr;
+    };
+    Widget* tabButton = findTab(host->root());
+    CHECK(tabButton);
+    const SkRect tabRect = tabButton->bounds();
+    host->injectMouseMove(tabRect.centerX(), tabRect.centerY());
+    host->injectMouseButton(tabRect.centerX(), tabRect.centerY(), MouseButton::Left, true);
+    host->injectMouseMove(tabRect.centerX() + 20, tabRect.centerY());  // starts the tab drag
+    host->injectMouseMove(-5000, -5000);                     // outside every window: floats
+    Window* floating = designer->window();
+    CHECK(floating && floating != host && floating->isFloating());
+    { WidgetThemeScope scope(designer); CHECK(&theme() == designer->ownTheme()); }
+    host->injectMouseButton(-5000, -5000, MouseButton::Left, false); // dropped nowhere: stays floating
+    CHECK(designer->window() == floating);
+    // Back by the empty part of the floating window's tab bar: a tab drag (an OS window move could not dock).
+    floating->renderFrame(); // lays it out
+    Widget* floatTab = findTab(floating->root());
+    const SkRect tabBar = floatTab->parent()->bounds();
+    const SkPoint grabAt{std::min(tabBar.right() - 4, floatTab->bounds().right() + 30), tabBar.centerY()};
+    floating->injectMouseMove(grabAt.x(), grabAt.y());
+    floating->injectMouseButton(grabAt.x(), grabAt.y(), MouseButton::Left, true);
+    floating->injectMouseMove(grabAt.x() + 20, grabAt.y()); // past the threshold: the tab drag starts
+    const SkRect central = dock->centralNode()->bounds();
+    host->injectMouseMove(central.right() - 10, central.centerY()); // right edge band of the app UI
+    host->injectMouseButton(central.right() - 10, central.centerY(), MouseButton::Left, false);
+    app.pumpOnce(false); // the emptied floating window closes
+    CHECK(designer->window() == host && !dock->rootNode()->isLeaf() && dock->centralNode()->isAncestorOf(&appUi));
+
+    closeDesigner();
+    app.pumpOnce(false); // destroyed after the current event
+    CHECK(dock->rootNode()->isCentral() && dock->centralNode()->isAncestorOf(&appUi));
+    CHECK(openDesigner(host) != nullptr); // reopens beside the same central node
+    closeDesigner();
+    app.pumpOnce(false);
+
+    // themeOverride: only that widget's subtree changes, and it still follows the app theme otherwise.
+    {
+        Window* tw = app.createWindow({.title = "override", .width = 300, .height = 100});
+        Button& plainBtn = tw->root()->add<Button>("plain");
+        Button& pill = tw->root()->add<Button>("pill").themeOverride([](Theme& t) { t.button.cornerRadius = 999; });
+        { WidgetThemeScope scope(&pill); CHECK(theme().button.cornerRadius == 999); }
+        { WidgetThemeScope scope(&plainBtn); CHECK(theme().button.cornerRadius != 999); }
+        const SkColor oldText = appTheme().button.text;
+        appTheme().button.text = SK_ColorRED;
+        applyTheme();
+        { WidgetThemeScope scope(&pill); CHECK(theme().button.text == SK_ColorRED && theme().button.cornerRadius == 999); }
+        appTheme().button.text = oldText;
+        applyTheme();
+        tw->close();
+    }
+
+    // Timers: a blocking loop iteration sleeps only until the next timer, which then runs; a
+    // cancelled one never does.
+    {
+        bool fired = false, cancelledFired = false;
+        const int dead = app.setTimer(0.01, [&] { cancelledFired = true; });
+        app.setTimer(0.02, [&] { fired = true; });
+        app.cancelTimer(dead);
+        const auto start = std::chrono::steady_clock::now();
+        while (!fired && std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) app.pumpOnce(true);
+        CHECK(fired && !cancelledFired);
+    }
 
     std::printf("core_test: ok\n");
 }

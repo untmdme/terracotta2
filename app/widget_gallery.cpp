@@ -85,11 +85,14 @@ Panel& tile(Widget& row, const char* caption) {
 int main() {
     try {
         Application app;
-        Window* window = app.createWindow({.title = "Terracotta2 - Widget Gallery", .width = 1100, .height = 760, .minWidth = 560, .minHeight = 400});
+        Window* window = app.createWindow({.title = "Terracotta2 - Widget Gallery", .width = 1100, .height = 760, .minWidth = 560, .minHeight = 400, .customTitlebar = true});
+        window->root()->add<TitleBar>().build([](TitleBar& bar) {
+            bar.add<Label>("Widget Gallery").weight(600).grow(1);
+            // Designer: inspector, widget tree and theme editor, docked as a sidebar you can drag out; edits apply live.
+            bar.add<Button>("Open designer").onClick([] { openDesigner(); });
+            bar.add<WindowButtons>();
+        });
         ScrollView& page = window->root()->add<ScrollView>().padding(20).padding(Edge::Right, 26).gap(16);
-
-        // Designer: theme editor + widget inspector in its own window; edits apply live.
-        page.add<Button>("Open designer").onClick([] { openDesigner(); });
 
         // Animation: the spinner repaints every frame, nothing else does.
         section(page, "Animation", "Spinner loops animate(..., Ease::Linear) from onComplete. Run with TC2_SHOW_DAMAGE=1: only its square is outlined each frame; the rest of the window is never repainted. Stop it and the app goes back to 0 frames.")
@@ -127,11 +130,13 @@ int main() {
         Canvas* chart = nullptr;
 
         // Buttons: Button(text).onClick(fn); the callback updates a Label through .text().
-        section(page, "Buttons", "Button(text).onClick(fn). Tab moves focus, Space or Enter clicks. Hover and press states come from theme().button.").build([&](Panel& card) {
+        section(page, "Buttons", "Button(text).onClick(fn). Tab moves focus, Space or Enter clicks. Hover and press states come from theme().button; themeOverride() changes it for one widget (the pill).").build([&](Panel& card) {
             card.add<HBox>().gap(8).alignItems(Align::Center).build([&](HBox& row) {
                 row.add<Button>("Click me").onClick([&] { clicks->text("Clicked " + std::to_string(++count) + " times"); });
                 row.add<Button>("Reset").onClick([&] { clicks->text("No clicks yet"); count = 0; }).tooltip("Sets the counter back to zero");
                 row.add<Button>("Print to stdout").onClick([] { std::cout << "Hello from a button\n"; });
+                // Local override: this one button is a pill; the rest of theme() still applies to it.
+                row.add<Button>("Pill").themeOverride([](Theme& t) { t.button.cornerRadius = 999; });
             });
             card.add<Label>("No clicks yet").color(theme().textMuted).ref(clicks);
         });

@@ -84,9 +84,13 @@ public:
     // is kept. In effect for layout, paint and input; build its widgets inside a ThemeScope.
     void setTheme(Theme* t);
     Theme* theme() const;
-    // Debug outline drawn over w (inspector tools); nullptr clears. Cleared if w is destroyed.
+    // Inspector overlays (debug tools); nullptr clears, and each is cleared if its widget is destroyed.
+    // Highlight: the selection, drawn like browser dev tools (margin, padding and content tinted).
+    // Preview: a plain outline, e.g. for the widget under the pointer.
     void setHighlight(Widget* w);
     Widget* highlight() const;
+    void setPreview(Widget* w);
+    Widget* preview() const;
     float contentScale() const;
     SkSize size() const;                // logical px
 
@@ -102,6 +106,7 @@ public:
 
 private:
     friend class Application;
+    void endGlobalDrag(SkPoint screen);
     Window(Application& app, const WindowDesc& desc);
     struct Impl;
     std::unique_ptr<Impl> m_impl;

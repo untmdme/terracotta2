@@ -16,15 +16,10 @@ Theme& theme() { return s_scoped ? *s_scoped : appTheme(); }
 ThemeScope::ThemeScope(Theme* t) : m_prev(s_scoped) { s_scoped = t; }
 ThemeScope::~ThemeScope() { s_scoped = m_prev; }
 
-static void themeChanged(Widget* w) {
-    w->onThemeChanged();
-    for (auto& c : w->children()) themeChanged(c.get());
-}
-
 void applyTheme() {
     for (Window* win : Application::get().windows()) {
         ThemeScope scope(win->theme()); // windows with their own theme keep it, but still refresh
-        themeChanged(win->root());
+        win->root()->notifyThemeChanged();
         win->root()->markLayoutDirty();
         win->addDamage(SkRect::MakeSize(win->size()));
     }

@@ -53,6 +53,50 @@ MouseEvent localTo(const Widget* w, MouseEvent ev) {
 
 constexpr wgpu::TextureFormat kFormat = wgpu::TextureFormat::BGRA8Unorm;
 
+// Window-space margin box of w (its bounds grown by its Yoga margins), for the inspector highlight.
+SkRect marginBox(const Widget* w) {
+    const SkRect b = w->mapToWindow(w->bounds());
+    YGNodeRef n = w->yogaNode();
+    SkRect m = SkRect::MakeLTRB(b.left() - YGNodeLayoutGetMargin(n, YGEdgeLeft), b.top() - YGNodeLayoutGetMargin(n, YGEdgeTop),
+                                b.right() + YGNodeLayoutGetMargin(n, YGEdgeRight), b.bottom() + YGNodeLayoutGetMargin(n, YGEdgeBottom));
+    m.sort();
+    m.join(b); // negative margins
+    return m;
+}
+
+// Window-space content box of w (its bounds minus its Yoga padding).
+SkRect contentBox(const Widget* w) {
+    const SkRect b = w->mapToWindow(w->bounds());
+    YGNodeRef n = w->yogaNode();
+    return SkRect::MakeLTRB(b.left() + YGNodeLayoutGetPadding(n, YGEdgeLeft), b.top() + YGNodeLayoutGetPadding(n, YGEdgeTop),
+                            b.right() - YGNodeLayoutGetPadding(n, YGEdgeRight), b.bottom() - YGNodeLayoutGetPadding(n, YGEdgeBottom));
+}
+
+// The inspector selection, like browser dev tools: margin orange, padding green, content blue.
+void drawBoxModel(SkCanvas* c, const Widget* w) {
+    const SkRect b = w->mapToWindow(w->bounds());
+    const SkRect content = contentBox(w);
+    auto ring = [c](const SkRect& outer, const SkRect& inner, SkColor color) {
+        c->save();
+        c->clipRect(inner, SkClipOp::kDifference);
+        SkPaint p;
+        p.setColor(color);
+        c->drawRect(outer, p);
+        c->restore();
+    };
+    ring(marginBox(w), b, SkColorSetARGB(110, 246, 178, 107));
+    if (content.isSorted()) {
+        ring(b, content, SkColorSetARGB(110, 147, 196, 125));
+        SkPaint p;
+        p.setColor(SkColorSetARGB(90, 111, 168, 220));
+        c->drawRect(content, p);
+    }
+    SkPaint p;
+    p.setStyle(SkPaint::kStroke_Style);
+    p.setColor(SkColorSetRGB(111, 168, 220));
+    c->drawRect(b.makeInset(0.5f, 0.5f), p);
+}
+
 
 } // namespace
 
@@ -94,6 +138,9 @@ struct Window::Impl : platform::WindowEvents {
     Widget* focused = nullptr;
     bool focusVisible = false; // focused via Tab, not a click
     Widget* highlight = nullptr;
+    SkRect highlightBox = SkRect::MakeEmpty();     // its margin box when last damaged
+    SkRect highlightContent = SkRect::MakeEmpty(); // and its content box: a padding change moves only this
+    Widget* preview = nullptr;
     Theme* theme = nullptr; // own theme, or null for appTheme()
     Cursor curCursor = Cursor::Arrow;
 
@@ -163,7 +210,7 @@ struct Window::Impl : platform::WindowEvents {
     void teardown() {
         ready = false;
         tearingDown = true; // forgetSubtree() becomes a no-op while the tree dies
-        hovered = captured = focused = highlight = nullptr;
+        hovered = captured = focused = highlight = preview = nullptr;
         animating.clear();
         root.reset(); // widgets first: their destructors call back into us
         if (A->context) A->context->submit(skgpu::graphite::SyncToCpu::kYes);
@@ -198,9 +245,9 @@ struct Window::Impl : platform::WindowEvents {
         auto newChain = chainOf(nh);
         hovered = nh;
         for (Widget* w : oldChain)
-            if (!contains(newChain, w)) w->onMouseLeave();
+            if (!contains(newChain, w)) { WidgetThemeScope ts(w); w->onMouseLeave(); }
         for (auto it = newChain.rbegin(); it != newChain.rend(); ++it)
-            if (!contains(oldChain, *it)) (*it)->onMouseEnter();
+            if (!contains(oldChain, *it)) { WidgetThemeScope ts(*it); (*it)->onMouseEnter(); }
     }
 
     void tickAnimations() {
@@ -210,6 +257,7 @@ struct Window::Impl : platform::WindowEvents {
         auto snapshot = animating; // callbacks may add/remove widgets
         for (Widget* w : snapshot) {
             if (!contains(animating, w)) continue;
+            WidgetThemeScope ts(w);
             w->tickAnimation(dt);
             if (!w->isAnimating()) animating.erase(std::remove(animating.begin(), animating.end(), w), animating.end());
         }
@@ -224,11 +272,21 @@ struct Window::Impl : platform::WindowEvents {
         resize();
         self->renderFrame();
     }
+    // During a global drag the pointer comes from the OS directly: a window that follows the pointer
+    // (a dragged dock tab) has moved since the event's window-local position was taken, and
+    // converting that with its new position would overshoot, every move a bit more.
     void onMouseMove(float x, float y) override {
-        if (ready) self->injectMouseMove(x, y);
+        if (!ready) return;
+        if (A->dragActive) {
+            if (auto cb = A->dragMove) cb(platform::cursorScreenPos(native)); // copy: the callback may end the drag
+            return;
+        }
+        self->injectMouseMove(x, y);
     }
     void onMouseButton(float x, float y, MouseButton b, bool down, int mods) override {
-        if (ready) self->injectMouseButton(x, y, b, down, mods);
+        if (!ready) return;
+        if (A->dragActive && !down) return self->endGlobalDrag(platform::cursorScreenPos(native));
+        self->injectMouseButton(x, y, b, down, mods);
     }
     void onMouseLeave() override {
         if (ready) self->injectMouseLeave();
@@ -385,8 +443,8 @@ void Window::setFocus(Widget* w) {
     if (w == d.focused) return;
     Widget* old = d.focused;
     d.focused = w;
-    if (old) { old->onBlur(); old->markPaintDirty(); } // focus ring
-    if (w) { w->onFocus(); w->markPaintDirty(); }
+    if (old) { WidgetThemeScope ts(old); old->onBlur(); old->markPaintDirty(); } // focus ring
+    if (w) { WidgetThemeScope ts(w); w->onFocus(); w->markPaintDirty(); }
 }
 
 bool Window::focusVisible() const { return m_impl->focusVisible; }
@@ -422,11 +480,22 @@ Theme* Window::theme() const { return m_impl->theme; }
 void Window::setHighlight(Widget* w) {
     Impl& d = *m_impl;
     if (w == d.highlight) return;
-    if (d.highlight) addDamage(d.highlight->mapToWindow(d.highlight->bounds()));
+    addDamage(d.highlightBox);
     d.highlight = w;
-    if (w) addDamage(w->mapToWindow(w->bounds()));
+    d.highlightBox = w ? marginBox(w) : SkRect::MakeEmpty();
+    d.highlightContent = w ? contentBox(w) : SkRect::MakeEmpty();
+    addDamage(d.highlightBox);
 }
 Widget* Window::highlight() const { return m_impl->highlight; }
+
+void Window::setPreview(Widget* w) {
+    Impl& d = *m_impl;
+    if (w == d.preview) return;
+    if (d.preview) addDamage(d.preview->mapToWindow(d.preview->bounds()));
+    d.preview = w;
+    if (w) addDamage(w->mapToWindow(w->bounds()));
+}
+Widget* Window::preview() const { return m_impl->preview; }
 
 void Window::releaseCapture() {
     Impl& d = *m_impl;
@@ -451,6 +520,7 @@ void Window::forgetSubtree(Widget* w) {
     if (inside(d.pressed)) d.pressed = nullptr;
     if (inside(d.focused)) d.focused = nullptr;
     if (inside(d.highlight)) d.highlight = nullptr;
+    if (inside(d.preview)) d.preview = nullptr;
     d.animating.erase(std::remove_if(d.animating.begin(), d.animating.end(), inside), d.animating.end());
 }
 
@@ -479,6 +549,15 @@ bool Window::renderFrame() {
         stats.layoutRan = true;
     }
     stats.layoutMs = msSince(tLayout);
+    if (d.highlight) { // the overlay spans its margins and its padding/content edge moves with padding: own damage misses both
+        const SkRect box = marginBox(d.highlight), content = contentBox(d.highlight);
+        if (box != d.highlightBox || content != d.highlightContent) {
+            addDamage(d.highlightBox);
+            addDamage(box);
+            d.highlightBox = box;
+            d.highlightContent = content;
+        }
+    }
 
     // Snap each rect outward to whole device pixels so clip edges are exact.
     const float s = d.scale;
@@ -507,14 +586,15 @@ bool Window::renderFrame() {
         canvas->clipRect(r);
         canvas->drawColor(Terracotta2::theme().globalBackground, SkBlendMode::kSrc);
         d.root->paint(canvas, r, stats.widgetsPainted);
-        if (d.highlight) { // inside its bounds, so its own damage covers it
+        if (d.highlight) drawBoxModel(canvas, d.highlight);
+        if (d.preview) { // inside its bounds, so its own damage covers it
             SkPaint p;
-            const SkRect hb = d.highlight->mapToWindow(d.highlight->bounds());
+            const SkRect pb = d.preview->mapToWindow(d.preview->bounds());
             p.setColor(SkColorSetARGB(40, 255, 0, 255));
-            canvas->drawRect(hb, p);
+            canvas->drawRect(pb, p);
             p.setStyle(SkPaint::kStroke_Style);
             p.setColor(SkColorSetRGB(255, 0, 255));
-            canvas->drawRect(hb.makeInset(0.5f, 0.5f), p);
+            canvas->drawRect(pb.makeInset(0.5f, 0.5f), p);
         }
         canvas->restore();
     }
@@ -598,11 +678,13 @@ void Window::injectMouseMove(float x, float y) {
     if (auto hook = A.mouseHook; hook && hook(this, x, y, false)) return; // copy: it may clear itself
     MouseEvent ev{x, y, MouseButton::Left, 0};
     if (d.captured) {
+        WidgetThemeScope ts(d.captured);
         d.captured->onMouseMove(localTo(d.captured, ev));
     } else {
         d.updateHover(x, y);
         for (Widget* w = d.hovered; w;) {
             Widget* next = w->parent();
+            WidgetThemeScope ts(w);
             if (w->onMouseMove(localTo(w, ev))) break;
             w = next;
         }
@@ -616,13 +698,7 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
     ThemeScope themeScope(d.theme);
     Application::Impl& A = *d.A;
     if (A.dragActive) {
-        if (down) return;
-        // End the session BEFORE the callback so it may start another drag or destroy windows.
-        auto cb = std::move(A.dragRelease);
-        A.dragActive = false;
-        A.dragMove = nullptr;
-        A.dragRelease = nullptr;
-        if (cb) cb(toScreen({x, y}));
+        if (!down) endGlobalDrag(toScreen({x, y}));
         return;
     }
     if (auto hook = A.mouseHook; down && hook && hook(this, x, y, true)) return;
@@ -649,6 +725,7 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         setFocus(f);
         for (Widget* w = target; w;) {
             Widget* next = w->parent();
+            WidgetThemeScope ts(w);
             if (w->onMouseDown(localTo(w, ev))) {
                 d.captured = w;
                 break;
@@ -659,10 +736,12 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         Widget* c = d.captured;
         d.captured = nullptr;
         if (c) {
+            WidgetThemeScope ts(c);
             c->onMouseUp(localTo(c, ev));
         } else {
             for (Widget* w = d.hovered; w;) {
                 Widget* next = w->parent();
+                WidgetThemeScope ts(w);
                 if (w->onMouseUp(localTo(w, ev))) break;
                 w = next;
             }
@@ -675,12 +754,23 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         while (w && !w->isAncestorOf(p)) w = w->parent();
         while (w) {
             Widget* next = w->parent();
+            WidgetThemeScope ts(w);
             if (w->onMouseClick(localTo(w, ev))) break;
             w = next;
         }
         d.updateHover(x, y);
     }
     d.updateCursor();
+}
+
+void Window::endGlobalDrag(SkPoint screen) {
+    Application::Impl& A = *m_impl->A;
+    // End the session BEFORE the callback so it may start another drag or destroy windows.
+    auto cb = std::move(A.dragRelease);
+    A.dragActive = false;
+    A.dragMove = nullptr;
+    A.dragRelease = nullptr;
+    if (cb) cb(screen);
 }
 
 void Window::injectMouseLeave() {
@@ -701,6 +791,7 @@ void Window::injectScroll(float dx, float dy) {
     }
     for (Widget* w = m_impl->hovered; w;) {
         Widget* next = w->parent();
+        WidgetThemeScope ts(w);
         if (w->onScroll(dx, dy)) break;
         w = next;
     }
@@ -714,6 +805,7 @@ void Window::injectKey(Key key, KeyAction action, int mods) {
     KeyEvent ev{key, action, mods};
     for (Widget* w = m_impl->focused; w;) {
         Widget* next = w->parent();
+        WidgetThemeScope ts(w);
         if (w->onKey(ev)) return;
         w = next;
     }
@@ -725,6 +817,7 @@ void Window::injectChar(uint32_t codepoint) {
     ThemeScope themeScope(m_impl->theme);
     for (Widget* w = m_impl->focused; w;) {
         Widget* next = w->parent();
+        WidgetThemeScope ts(w);
         if (w->onChar(codepoint)) break;
         w = next;
     }

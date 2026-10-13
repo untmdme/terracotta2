@@ -1,5 +1,6 @@
 #pragma once
 // Private: shared by Application.cpp and Window.cpp (Window reaches the GPU objects through here).
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -23,6 +24,14 @@ struct Application::Impl {
     std::vector<std::unique_ptr<Window>> windows; // creation order
     std::unordered_map<const Window*, platform::NativeWindow*> natives; // Window::Window/teardown keep this in sync
     std::vector<Window*> pendingClose;
+    std::vector<std::function<void()>> posted; // Application::post
+    struct Timer {
+        int id;
+        std::chrono::steady_clock::time_point due;
+        std::function<void()> fn;
+    };
+    std::vector<Timer> timers; // Application::setTimer
+    int nextTimerId = 1;
     Window* main = nullptr;
     bool quitting = false;
 

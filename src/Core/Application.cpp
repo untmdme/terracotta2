@@ -180,13 +180,47 @@ void Application::quit() {
 
 void Application::wake() { platform::wake(); }
 
+void Application::post(std::function<void()> fn) { m_impl->posted.push_back(std::move(fn)); }
+
+int Application::setTimer(double seconds, std::function<void()> fn) {
+    Impl& d = *m_impl;
+    const int id = d.nextTimerId++;
+    const auto due = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                                            std::chrono::duration<double>(std::max(seconds, 0.0)));
+    d.timers.push_back({id, due, std::move(fn)});
+    return id;
+}
+
+void Application::cancelTimer(int id) {
+    std::erase_if(m_impl->timers, [id](const Impl::Timer& t) { return t.id == id; });
+}
+
 bool Application::pumpOnce(bool block) {
     Impl& d = *m_impl;
-    bool busy = d.quitting || !d.pendingClose.empty();
+    bool busy = d.quitting || !d.pendingClose.empty() || !d.posted.empty();
     for (auto& w : d.windows)
         if (w->needsFrame()) busy = true;
-    if (block && !busy) platform::waitEvents();
+    const auto now = std::chrono::steady_clock::now();
+    double timeout = -1; // until the next timer is due
+    for (auto& t : d.timers) {
+        const double in = std::chrono::duration<double>(t.due - now).count();
+        timeout = timeout < 0 ? std::max(in, 0.0) : std::min(timeout, std::max(in, 0.0));
+    }
+    if (block && !busy && timeout != 0) platform::waitEvents(timeout);
     else platform::pollEvents();
+
+    // Due timers. Moved out first: callbacks may set or cancel timers.
+    std::vector<Impl::Timer> due;
+    const auto after = std::chrono::steady_clock::now();
+    for (auto it = d.timers.begin(); it != d.timers.end();) {
+        if (it->due <= after) { due.push_back(std::move(*it)); it = d.timers.erase(it); }
+        else ++it;
+    }
+    for (auto& t : due) t.fn();
+
+    std::vector<std::function<void()>> posted;
+    posted.swap(d.posted);
+    for (auto& fn : posted) fn(); // may post more: those run next iteration
 
     std::vector<Window*> snapshot; // callbacks may create windows
     for (auto& w : d.windows) snapshot.push_back(w.get());

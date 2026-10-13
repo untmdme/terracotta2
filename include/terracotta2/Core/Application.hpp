@@ -50,6 +50,11 @@ public:
     // render windows that need a frame, destroy closed windows. Returns false once quitting.
     bool pumpOnce(bool block);
     void wake(); // unblock a blocking wait (thread-safe)
+    void post(std::function<void()> fn);
+    // Runs fn once on the UI thread after `seconds` (an idle loop sleeps until then, no polling).
+    // Returns an id for cancelTimer; ids are never 0, so 0 can mean "none".
+    int setTimer(double seconds, std::function<void()> fn);
+    void cancelTimer(int id); // no-op if it already ran or was cancelled
 
     // ---- global pointer grab for cross-window drags ----
     // While active, mouse moves and the button release from ANY window are routed here

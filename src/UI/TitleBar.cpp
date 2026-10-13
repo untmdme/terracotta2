@@ -58,13 +58,14 @@ public:
     void onLayout() override { markPaintDirty(); } // maximized <-> restored changes the glyph
     void onDraw(SkCanvas* c) override {
         const bool hot = isHovered(), down = hot && m_pressed;
-        SkColor fg = theme().label.text;
-        if (!hot && window() && !window()->isActive()) fg = detail::lerpColor(fg, theme().panelBackground, 0.6f); // inactive window: 40%, like its title
+        const TitleBarStyle& st = theme().titleBar;
+        SkColor fg = st.buttonIcon;
+        if (!hot && window() && !window()->isActive()) fg = detail::lerpColor(fg, st.background, 0.6f); // inactive window: 40%, like its title
         SkPaint p;
         p.setAntiAlias(true);
         if (hot) {
             if (m_kind == Kind::Close) { // Windows' close red, a little lighter while pressed
-                p.setColor(down ? SkColorSetRGB(200, 64, 49) : SkColorSetRGB(196, 43, 28));
+                p.setColor(down ? st.closePressed : st.closeHover);
                 fg = SK_ColorWHITE;
             } else { // a faint wash of the text color over the bar, weaker while pressed
                 p.setColor(SkColorSetA(fg, down ? 0x0A : 0x10));
@@ -99,7 +100,7 @@ TitleBar::TitleBar() {
 
 void TitleBar::onDraw(SkCanvas* c) {
     SkPaint p;
-    p.setColor(theme().panelBackground);
+    p.setColor(theme().titleBar.background);
     c->drawRect(m_bounds, p);
 }
 

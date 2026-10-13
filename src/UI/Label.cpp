@@ -15,6 +15,7 @@ using namespace detail;
 namespace {
 YGSize measureLabel(YGNodeConstRef node, float width, YGMeasureMode wm, float, YGMeasureMode) {
     auto* label = static_cast<Label*>(YGNodeGetContext(node));
+    WidgetThemeScope scope(label); // Yoga calls this outside the tree walks
     SkSize s = label->measure(wm == YGMeasureModeUndefined ? SK_ScalarInfinity : width);
     return {s.width(), s.height()};
 }

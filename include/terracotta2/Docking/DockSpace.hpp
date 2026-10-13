@@ -18,6 +18,7 @@ public:
     ~DockNode() override;
 
     bool isLeaf() const { return m_first == nullptr; }
+    bool isCentral() const { return m_central; } // DockSpace::setCentral's leaf
     bool isHorizontal() const { return m_horizontal; }
     DockNode* first() const { return m_first; }
     DockNode* second() const { return m_second; }
@@ -58,18 +59,21 @@ private:
         Widget* button = nullptr;  // child of m_tabBar
     };
     friend class DockTabButton; // defined in DockSpace.cpp
+    friend class DockTabBar;    // defined in DockSpace.cpp
     friend class DockSplitter;  // defined in DockSpace.cpp
     friend struct DockDrag;     // drag session, defined in DockSpace.cpp
     // existingToSecond: current tabs go to the second child (Left/Top drops) instead of the first.
     std::pair<DockNode*, DockNode*> split(bool horizontal, float ratio, bool existingToSecond = false);
     void ensureLeafChrome();
     void applyActive(); // visibility / flexGrow / button styling from m_active
+    Widget* makeCentral(std::unique_ptr<Widget> content); // empty leaf -> central (no tab bar)
 
     // leaf
     Widget* m_tabBar = nullptr;
     Widget* m_contentArea = nullptr;
     std::vector<Tab> m_tabs;
     int m_active = -1;
+    bool m_central = false;
     // split
     DockNode* m_first = nullptr;
     DockNode* m_second = nullptr;
@@ -110,6 +114,19 @@ public:
 
     enum class DropZone { None, Center, Left, Right, Top, Bottom };
 
+    // The app's own UI in the middle of the dock space, like ImGui's central node: no tab bar, never
+    // closes, and tabs dock on its edges only (never into it). Turns the empty root leaf into it.
+    Widget* setCentral(std::unique_ptr<Widget> content);
+    DockNode* centralNode() const; // null if none
+
+    // Docks content as a new tab: into `target` (Center) or beside it, taking `ratio` of its size.
+    // Center on the central node docks to its right instead. Returns the tab's leaf.
+    DockNode* dock(std::string title, std::unique_ptr<Widget> content, DockNode* target, DropZone zone, float ratio = 0.3f);
+    // The tab showing `content` (anywhere): bring it to front and raise its window, or close it
+    // (content destroyed, its leaf collapsed, an emptied floating window closed). False if not a tab.
+    static bool revealTab(Widget* content);
+    static bool closeTab(Widget* content);
+
     // Starts a drag session (driven by Application's global drag). Called by tab widgets.
     // grabOffset: cursor position relative to the tab's top-left, kept while a floating window follows.
     void beginTabDrag(DockNode* source, int tabIndex, SkPoint grabOffset);
@@ -126,6 +143,7 @@ private:
     friend class DockNode;
     friend struct DockDrag;     // drag session, defined in DockSpace.cpp
     void tidy(DockNode* source); // after a tab left `source`: collapse it / close its emptied floating window
+    static std::pair<DockNode*, int> tabOf(Widget* content); // leaf + index of a tab's content, or {null, -1}
     void collapse(DockNode* emptyLeaf); // replace parent split by the sibling
     std::pair<DockNode*, DropZone> dropTarget(float x, float y) const; // window-local coords
     SkRect previewRect(DockNode* target, DropZone zone) const;

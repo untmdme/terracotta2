@@ -17,6 +17,7 @@ using namespace detail;
 namespace {
 YGSize measureInput(YGNodeConstRef node, float width, YGMeasureMode wm, float, YGMeasureMode) {
     auto* in = static_cast<InputText*>(YGNodeGetContext(node));
+    WidgetThemeScope scope(in); // Yoga calls this outside the tree walks
     SkSize s = in->measure(wm == YGMeasureModeUndefined ? 240.0f : width);
     return {s.width(), s.height()};
 }
@@ -34,7 +35,29 @@ InputText::InputText(std::string placeholder, bool multiline)
     }
 }
 
-InputText::~InputText() = default;
+InputText::~InputText() { stopBlink(); }
+
+// Caret blink, like the platform's: solid while typing or moving, then on/off every half second.
+// A timer, not an animation: an idle focused field costs one repaint of itself per blink.
+constexpr double kBlinkSec = 0.53;
+
+void InputText::restartBlink() {
+    stopBlink();
+    if (!m_focused) return;
+    m_caretOn = true;
+    m_blinkTimer = Application::get().setTimer(kBlinkSec, [this] {
+        m_blinkTimer = 0;
+        const bool on = !m_caretOn;
+        restartBlink(); // re-arms (and turns the caret on)
+        m_caretOn = on;
+        markPaintDirty();
+    });
+}
+
+void InputText::stopBlink() {
+    if (m_blinkTimer) Application::get().cancelTimer(m_blinkTimer);
+    m_blinkTimer = 0;
+}
 
 void InputText::onThemeChanged() {
     padding(Edge::Horizontal, theme().input.paddingX);
@@ -122,6 +145,7 @@ void InputText::setValue(std::string v) {
 }
 
 void InputText::edited() {
+    restartBlink();
     m_paragraph.reset();
     if (m_multiline) markLayoutDirty(); // the height may change
     m_followCaret = true;
@@ -134,6 +158,7 @@ void InputText::edited() {
 bool InputText::moveCaret(size_t pos, bool extend) {
     const size_t anchor = extend ? m_anchor : pos;
     if (pos != m_caret || anchor != m_anchor) {
+        restartBlink();
         m_caret = pos;
         m_anchor = anchor;
         m_followCaret = true;
@@ -172,6 +197,7 @@ bool InputText::onMouseDown(const MouseEvent& e) {
         m_caret = caret;
         markPaintDirty();
     }
+    restartBlink();
     m_selecting = true;
     return true;
 }
@@ -290,9 +316,14 @@ bool InputText::onKey(const KeyEvent& e) {
     }
 }
 
-void InputText::onFocus() { m_focused = true; markPaintDirty(); }
+void InputText::onFocus() {
+    m_focused = true;
+    restartBlink();
+    markPaintDirty();
+}
 void InputText::onBlur() {
     m_focused = false;
+    stopBlink();
     m_selecting = false;
     m_anchor = m_caret;
     m_scrollX = 0.0f; // show the start again
@@ -339,13 +370,12 @@ void InputText::onDraw(SkCanvas* canvas) {
     canvas->clipRect(m_bounds.makeInset(st.paddingX, 1.0f));
     if (m_focused && !m_value.empty()) paintSelection(canvas, para, m_value, m_anchor, m_caret, o.x(), o.y());
     para.paint(canvas, o.x(), o.y());
-    if (m_focused) {
+    if (m_focused && m_caretOn) {
         const SkRect c = caretRect();
         SkPaint cp;
         cp.setColor(st.caret);
         canvas->drawRect(SkRect::MakeXYWH(std::floor(o.x() + c.left()), o.y() + c.top(), 1.0f, c.height()), cp);
     }
-    // ponytail: no caret blink (zero idle frames); blink via animate() if wanted
     canvas->restore();
     if (m_multiline) ScrollView::drawThumb(canvas, ScrollView::thumbRect(m_bounds, m_scrollY, textH, visibleH));
 }

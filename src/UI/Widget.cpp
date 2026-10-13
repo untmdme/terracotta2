@@ -1,6 +1,7 @@
 #include "terracotta2/UI/Widget.hpp"
 #include <algorithm>
 #include <cassert>
+#include <optional>
 #include "include/core/SkPaint.h"
 #include "terracotta2/Core/Window.hpp"
 #include "terracotta2/Theme/Theme.hpp"
@@ -185,6 +186,8 @@ Widget* Widget::hitTest(float x, float y) {
 
 void Widget::paint(SkCanvas* canvas, const SkRect& damage, int& count) {
     if (!m_visible || !SkRect::Intersects(m_bounds.makeOutset(kPaintOverflow, kPaintOverflow), damage)) return;
+    std::optional<ThemeScope> themed;
+    if (m_theme) themed.emplace(m_theme);
     onDraw(canvas);
     ++count;
     if (m_clip_children) {
@@ -223,6 +226,8 @@ void Widget::applyLayout(float parentX, float parentY) {
     // m_layout_dirty is set on every ancestor of a relayoutChildren() caller (bubbling), which
     // is what lets the walk reach it when Yoga itself reports nothing new.
     bool recurse = YGNodeGetHasNewLayout(m_yg_node) || moved || m_force_child_layout || m_layout_dirty;
+    std::optional<ThemeScope> themed;
+    if (m_theme) themed.emplace(m_theme);
 
     if (nb != m_bounds) {
         invalidateRect(m_bounds);
@@ -250,6 +255,51 @@ void Widget::applyLayout(float parentX, float parentY) {
     YGNodeSetHasNewLayout(m_yg_node, false);
     m_layout_dirty = false;
 }
+
+// ---- theme ----
+
+void Widget::notifyThemeChanged() {
+    if (m_themePatch) { // theme() is the inherited one here: ancestors' scopes are on
+        *m_patched = theme();
+        m_themePatch(*m_patched);
+    }
+    std::optional<ThemeScope> themed;
+    if (m_theme) themed.emplace(m_theme);
+    onThemeChanged();
+    for (auto& c : m_children) c->notifyThemeChanged();
+}
+
+void Widget::setTheme(Theme* t) {
+    m_themePatch = nullptr;
+    if (t != m_patched.get()) m_patched.reset();
+    if (t == m_theme) return;
+    m_theme = t;
+    WidgetThemeScope scope(this); // inherit (t == nullptr): the theme above us
+    notifyThemeChanged();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+// ponytail: the patch is re-run on applyTheme() and setThemeOverride() only; a widget moved under
+// a parent with another theme keeps its old base until then.
+void Widget::setThemeOverride(std::function<void(Theme&)> patch) {
+    m_themePatch = std::move(patch);
+    if (!m_patched) m_patched = std::make_unique<Theme>();
+    m_theme = m_patched.get();
+    WidgetThemeScope inherited(m_parent); // the base the patch edits
+    notifyThemeChanged();
+    markLayoutDirty();
+    markPaintDirty();
+}
+
+static Theme* themeAt(const Widget* w) {
+    for (const Widget* a = w; a; a = a->parent())
+        if (a->ownTheme()) return a->ownTheme();
+    Window* win = w ? w->window() : nullptr;
+    return win && win->theme() ? win->theme() : &theme();
+}
+
+WidgetThemeScope::WidgetThemeScope(const Widget* w) : m_scope(themeAt(w)) {}
 
 bool Widget::isHovered() const {
     Window* w = window();
