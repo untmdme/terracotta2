@@ -17,11 +17,7 @@
 // middle/Alt-drag = pan, right-click = add/duplicate/delete menu, drag from an output port onto an
 // input port = wire (drag a wired input away to disconnect). Keys (any panel): Ctrl/Cmd+C/X/V/D/A,
 // Delete, K (key selected nodes), F (frame selection), Space (play), Left/Right (frame), Home/End.
-#include <terracotta2/Core/Application.hpp>
-#include <terracotta2/Core/Window.hpp>
-#include <terracotta2/Docking/DockSpace.hpp>
-#include <terracotta2/UI/Container.hpp>
-#include <terracotta2/UI/Controls.hpp>
+#include <terracotta2/Terracotta2.hpp>
 #include "include/core/SkPaint.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkRRect.h"
@@ -145,151 +141,14 @@ struct Studio {
     bool handleKey(const KeyEvent& e, Widget& from); // shortcuts shared by every panel
 };
 
-// ---------------------------------------------------------------- popups
-
-// Full-window layer above a window's UI for menus and pickers; one per window, made on first use.
-// A press outside the popup closes it and is swallowed, like a native menu.
-class Overlay : public Widget {
-public:
-    Overlay() {
-        absolute(0, 0).widthPercent(100).heightPercent(100);
-        setVisible(false);
-    }
-    static Overlay& of(Widget& w) {
-        Widget* root = w.window()->getRootWidget();
-        for (auto& c : root->children())
-            if (auto* o = dynamic_cast<Overlay*>(c.get())) return *o;
-        return root->add<Overlay>();
-    }
-    // Replaces the popup with a new T at `at` (window coords), kept inside the window given its expected size.
-    template <class T, class... A>
-    T& open(SkPoint at, SkSize expect, A&&... args) {
-        clearChildren();
-        const SkSize win = window()->size();
-        const float x = std::clamp(at.x(), 0.0f, std::max(0.0f, win.width() - expect.width()));
-        const float y = at.y() + expect.height() <= win.height() ? at.y() : std::max(0.0f, at.y() - expect.height());
-        T& t = add<T>(std::forward<A>(args)...);
-        t.absolute(x, y);
-        visible(true);
-        return t;
-    }
-    void close() {
-        if (!isVisible()) return;
-        visible(false);
-        clearChildren(); // popups capture node pointers; never keep one past its close
-    }
-    bool onMouseDown(const MouseEvent&) override {
-        close();
-        return true;
-    }
-    bool onScroll(float, float) override {
-        close();
-        return true;
-    }
-};
-
-class PopupBox : public VBox {
-public:
-    PopupBox() { padding(4); }
-    bool onMouseDown(const MouseEvent&) override { return true; } // presses inside never reach the Overlay
-    void onDraw(SkCanvas* c) override {
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(SkColorSetRGB(42, 42, 46));
-        c->drawRRect(SkRRect::MakeRectXY(m_bounds, 6, 6), p);
-        p.setStyle(SkPaint::kStroke_Style);
-        p.setColor(SkColorSetRGB(70, 70, 76));
-        c->drawRRect(SkRRect::MakeRectXY(m_bounds.makeInset(0.5f, 0.5f), 6, 6), p);
-    }
-};
-
-class MenuItem : public HBox {
-public:
-    MenuItem(const std::string& text, bool current, std::function<void()> fn) : m_fn(std::move(fn)) {
-        height(22).padding(YGEdgeHorizontal, 10).alignItems(YGAlignCenter);
-        add<Label>(text).fontSize(12).color(current ? kSelect : kText);
-    }
-    bool onMouseDown(const MouseEvent&) override { return true; }
-    bool onClick(const MouseEvent&) override {
-        auto fn = m_fn; // close() destroys this item: touch no members after it
-        Overlay::of(*this).close();
-        fn();
-        return true;
-    }
-    void onMouseEnter() override { markPaintDirty(); }
-    void onMouseLeave() override { markPaintDirty(); }
-    void onDraw(SkCanvas* c) override {
-        if (!isHovered()) return;
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(SkColorSetARGB(160, 70, 110, 200));
-        c->drawRRect(SkRRect::MakeRectXY(m_bounds, 4, 4), p);
-    }
-
-private:
-    std::function<void()> m_fn;
-};
-
-void openMenu(Widget& from, SkPoint at, const std::vector<std::string>& items, std::function<void(int)> pick, int current = -1) {
-    auto& box = Overlay::of(from).open<PopupBox>(at, SkSize::Make(180, items.size() * 22.0f + 8));
-    box.width(180);
-    for (int i = 0; i < int(items.size()); ++i) box.add<MenuItem>(items[i], i == current, [pick, i] { pick(i); });
-}
-
 // ---------------------------------------------------------------- small controls
-
-// Field with a dropdown menu of choices.
-class Dropdown : public HBox {
-public:
-    Dropdown(const std::vector<const char*>& items, std::function<int()> get, std::function<void(int)> set)
-        : m_items(items), m_get(std::move(get)), m_set(std::move(set)) {
-        height(20).grow(1).basis(0).alignItems(YGAlignCenter).padding(YGEdgeLeft, 6).padding(YGEdgeRight, 18); // room for the chevron
-        m_label = &add<Label>("").fontSize(12);
-        refresh();
-    }
-    void refresh() {
-        const char* t = m_items[std::clamp(m_get(), 0, int(m_items.size()) - 1)];
-        if (m_label->text() != t) m_label->text(t);
-    }
-    bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
-    bool onClick(const MouseEvent& e) override {
-        if (e.button != MouseButton::Left) return false;
-        const SkRect b = mapToWindow(m_bounds); // inside the zoomed editor
-        openMenu(*this, {b.left(), b.bottom() + 2}, std::vector<std::string>(m_items.begin(), m_items.end()),
-                 [this](int i) { m_set(i); refresh(); }, m_get());
-        return true;
-    }
-    void onMouseEnter() override { markPaintDirty(); }
-    void onMouseLeave() override { markPaintDirty(); }
-    Cursor cursor() const override { return Cursor::Hand; }
-    void onDraw(SkCanvas* c) override {
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(isHovered() ? SkColorSetRGB(50, 50, 54) : theme().input.background);
-        c->drawRoundRect(m_bounds, 4, 4, p);
-        const float x = m_bounds.right() - 11, y = m_bounds.centerY();
-        SkPathBuilder b;
-        b.moveTo(x - 4, y - 2);
-        b.lineTo(x + 4, y - 2);
-        b.lineTo(x, y + 3);
-        b.close();
-        p.setColor(kMuted);
-        c->drawPath(b.detach(), p);
-    }
-
-private:
-    std::vector<const char*> m_items;
-    std::function<int()> m_get;
-    std::function<void(int)> m_set;
-    Label* m_label;
-};
 
 // Keyframe toggle for one parameter: filled = key on this frame, outline = animated, grey = static.
 class KeyButton : public Widget {
 public:
     KeyButton(Studio& s, Node* n, int p) : m_s(s), m_node(n), m_p(p) { size(14, 14).shrink(0); }
     bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
-    bool onClick(const MouseEvent& e) override {
+    bool onMouseClick(const MouseEvent& e) override {
         if (e.button != MouseButton::Left) return false;
         m_s.toggleKey(m_node, m_p);
         return true;
@@ -316,7 +175,7 @@ public:
         return SkHSVToColor(uint8_t(std::clamp(m_node->at(kAlpha, m_s.time), 0.0f, 1.0f) * 255), hsv);
     }
     bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
-    bool onClick(const MouseEvent& e) override {
+    bool onMouseClick(const MouseEvent& e) override {
         if (e.button != MouseButton::Left) return false;
         const SkRect b = mapToWindow(m_bounds); // inside the zoomed editor
         auto& box = Overlay::of(*this).open<PopupBox>({b.left(), b.bottom() + 2}, SkSize::Make(256, 232));
@@ -348,16 +207,16 @@ private:
 };
 
 // Text button that stays pressed while on.
-class Toggle : public HBox {
+class ToggleButton : public HBox {
 public:
-    Toggle(std::string text, bool on, std::function<void(bool)> onChange) : m_on(on), m_onChange(std::move(onChange)) {
+    ToggleButton(std::string text, bool on, std::function<void(bool)> onChange) : m_on(on), m_onChange(std::move(onChange)) {
         const auto& st = theme().button; // same metrics as Button
-        padding(YGEdgeHorizontal, st.paddingX).padding(YGEdgeVertical, st.paddingY).alignItems(YGAlignCenter);
+        padding(Edge::Horizontal, st.paddingX).padding(Edge::Vertical, st.paddingY).alignItems(Align::Center);
         add<Label>(std::move(text)).color(st.text);
     }
     bool on() const { return m_on; }
     bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
-    bool onClick(const MouseEvent&) override {
+    bool onMouseClick(const MouseEvent&) override {
         m_on = !m_on;
         markPaintDirty();
         m_onChange(m_on);
@@ -386,7 +245,7 @@ public:
         if (i != m_icon) m_icon = i, markPaintDirty();
     }
     bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
-    bool onClick(const MouseEvent&) override {
+    bool onMouseClick(const MouseEvent&) override {
         m_fn();
         return true;
     }
@@ -431,14 +290,14 @@ class NodeView : public VBox {
 public:
     NodeView(Studio& s, Node* n) : m_s(s), m_node(n) {
         const TypeDef& d = typeDef(n->type);
-        padding(YGEdgeBottom, kFoot);
-        add<HBox>().height(kTitleH).alignItems(YGAlignCenter).padding(YGEdgeHorizontal, 10).build([&](HBox& t) {
+        padding(Edge::Bottom, kFoot);
+        add<HBox>().height(kTitleH).alignItems(Align::Center).padding(Edge::Horizontal, 10).build([&](HBox& t) {
             t.add<Label>(n->name).fontSize(12).weight(600).color(SK_ColorWHITE);
         });
         auto row = [&]() -> HBox& {
-            return add<HBox>().height(kRowH).alignItems(YGAlignCenter).padding(YGEdgeHorizontal, 16).gap(6);
+            return add<HBox>().height(kRowH).alignItems(Align::Center).padding(Edge::Horizontal, 16).gap(6);
         };
-        if (d.hasOutput) row().justify(YGJustifyFlexEnd).build([&](HBox& r) { r.add<Label>(d.name).fontSize(11).color(kMuted); });
+        if (d.hasOutput) row().justify(Justify::End).build([&](HBox& r) { r.add<Label>(d.name).fontSize(11).color(kMuted); });
         for (Port p : d.inputs) row().build([&](HBox& r) { r.add<Label>(typeDef(NodeType(int(p))).name).fontSize(11).color(kMuted); });
         if (n->type == NodeType::Color)
             row().build([&](HBox& r) {
@@ -456,8 +315,9 @@ public:
                                                   pd.perPixel, pd.decimals)
                                     .height(20).grow(1).basis(0);
                 else
-                    f.choice = &r.add<Dropdown>(pd.choices, [get] { return int(get()); },
-                                                [this, p](int i) { m_s.editParam(m_node, p, float(i)); });
+                    f.choice = &r.add<Dropdown>(std::vector<std::string>(pd.choices.begin(), pd.choices.end()), int(get()))
+                                    .onChange([this, p](int i) { m_s.editParam(m_node, p, float(i)); })
+                                    .height(20).grow(1).basis(0);
                 f.key = &r.add<KeyButton>(s, n, p);
                 m_fields.push_back(f);
             });
@@ -472,7 +332,7 @@ public:
     void refreshParam(int p) {
         const Field& f = m_fields[p];
         if (f.number) f.number->refresh();
-        else f.choice->refresh();
+        else f.choice->value(int(m_node->at(p, m_s.time)));
         f.key->markPaintDirty();
         if (m_swatch) m_swatch->markPaintDirty();
     }
@@ -924,22 +784,22 @@ private:
 class EditorPanel : public VBox {
 public:
     explicit EditorPanel(Studio& s) {
-        add<Panel>(kPanel).direction(YGFlexDirectionRow).height(34).padding(YGEdgeHorizontal, 8).gap(6).alignItems(YGAlignCenter)
+        add<Panel>(kPanel).direction(Direction::Row).height(34).padding(Edge::Horizontal, 8).gap(6).alignItems(Align::Center)
             .build([&](Panel& bar) {
-                bar.add<Button>("Add Node", [this, &s] {
+                bar.add<Button>("Add Node").onClick([this, &s] {
                     std::vector<std::string> names;
                     for (int t = 0; t < kNodeTypes; ++t) names.push_back(typeDef(NodeType(t)).name);
-                    const SkRect b = m_add->mapToWindow(m_add->getBounds());
+                    const SkRect b = m_add->mapToWindow(m_add->bounds());
                     openMenu(*m_add, {b.left(), b.bottom() + 2}, names, [&s](int i) { s.addNode(NodeType(i), s.editor->viewCenter()); });
-                }).ref(m_add).alignSelf(YGAlignCenter); // Button aligns itself to the top by default
-                bar.add<Button>("Frame Selected", [&s] { s.editor->frameSelection(); }).alignSelf(YGAlignCenter);
-                bar.add<Button>("Frame All", [&s] { s.editor->frameAll(); }).alignSelf(YGAlignCenter);
-                bar.add<Button>("-", [&s] { s.editor->zoomBy(1 / 1.25f); }).alignSelf(YGAlignCenter);
-                bar.add<Button>("+", [&s] { s.editor->zoomBy(1.25f); }).alignSelf(YGAlignCenter);
-                bar.add<Toggle>("LOD", true, [&s](bool on) { s.editor->setLodEnabled(on); });
+                }).ref(m_add).alignSelf(Align::Center); // Button aligns itself to the top by default
+                bar.add<Button>("Frame Selected").onClick([&s] { s.editor->frameSelection(); }).alignSelf(Align::Center);
+                bar.add<Button>("Frame All").onClick([&s] { s.editor->frameAll(); }).alignSelf(Align::Center);
+                bar.add<Button>("-").onClick([&s] { s.editor->zoomBy(1 / 1.25f); }).alignSelf(Align::Center);
+                bar.add<Button>("+").onClick([&s] { s.editor->zoomBy(1.25f); }).alignSelf(Align::Center);
+                bar.add<ToggleButton>("LOD", true, [&s](bool on) { s.editor->setLodEnabled(on); });
                 bar.add<Label>("Right-click: menu   Drag ports: wire   Scroll: pan   Ctrl/Cmd+scroll: zoom   Home: view all   "
                                "Ctrl/Cmd+C V D A, Del, K, F, Space")
-                    .fontSize(11).color(kMuted).shrink(1).grow(1).basis(0).margin(YGEdgeLeft, 6);
+                    .fontSize(11).color(kMuted).shrink(1).grow(1).basis(0).margin(Edge::Left, 6);
             });
         s.editor = &add<NodeEditor>(s).grow(1).basis(0);
     }
@@ -948,83 +808,12 @@ private:
     Button* m_add = nullptr;
 };
 
-// ---------------------------------------------------------------- virtualized rows
-
-// A long list in a ScrollView where only the rows in view exist: a small pool of row widgets is
-// rebound as it scrolls (row i always uses slot i % pool, so a scroll step rebinds one row).
-class VirtualRows : public ScrollView {
-public:
-    explicit VirtualRows(float rowH) : m_rowH(rowH) {
-        grow(1).basis(0);
-        m_content = &add<Widget>();
-        m_content->manualLayout();
-    }
-    void setCount(int n) {
-        m_count = n;
-        m_content->height(n * m_rowH);
-        // contentHeight() is stale until the next layout, so clamp against the new height here
-        if (scrollY() > std::max(0.0f, n * m_rowH - m_bounds.height())) setScrollY(std::max(0.0f, n * m_rowH - m_bounds.height()));
-        sync();
-    }
-    void scrollToRow(int i) {
-        const float y = i * m_rowH;
-        if (y < scrollY()) setScrollY(y);
-        else if (y + m_rowH > scrollY() + m_bounds.height()) setScrollY(y + m_rowH - m_bounds.height());
-        sync();
-    }
-    void repaint() {
-        for (Widget* r : m_pool)
-            if (r->isVisible()) r->markPaintDirty();
-    }
-    bool onScroll(float dx, float dy) override {
-        const bool r = ScrollView::onScroll(dx, dy);
-        sync();
-        return r;
-    }
-    bool onMouseMove(const MouseEvent& e) override { // scrollbar thumb drag
-        const bool r = ScrollView::onMouseMove(e);
-        if (r) sync();
-        return r;
-    }
-    void onLayout() override {
-        ScrollView::onLayout();
-        sync();
-    }
-
-protected:
-    virtual Widget& makeRow(Widget& parent) = 0;
-    virtual void bindRow(Widget& row, int index) = 0;
-
-private:
-    void sync() {
-        const int need = int(std::ceil(m_bounds.height() / m_rowH)) + 1;
-        while (int(m_pool.size()) < need) m_pool.push_back(&makeRow(*m_content));
-        const int P = int(m_pool.size()), first = int(scrollY() / m_rowH);
-        const int last = std::min(m_count, first + need);
-        std::vector<bool> used(P);
-        for (int i = first; i < last; ++i) {
-            Widget* row = m_pool[i % P];
-            used[i % P] = true;
-            if (!row->isVisible()) row->visible(true);
-            bindRow(*row, i);
-            row->setFrame(SkRect::MakeXYWH(0, i * m_rowH, m_bounds.width(), m_rowH));
-        }
-        for (int k = 0; k < P; ++k)
-            if (!used[k] && m_pool[k]->isVisible()) m_pool[k]->visible(false);
-    }
-
-    float m_rowH;
-    int m_count = 0;
-    Widget* m_content;
-    std::vector<Widget*> m_pool;
-};
-
 // ---------------------------------------------------------------- node list (left)
 
 class ListRow : public HBox {
 public:
     explicit ListRow(Studio& s) : m_s(s) {
-        padding(YGEdgeHorizontal, 10).gap(8).alignItems(YGAlignCenter);
+        padding(Edge::Horizontal, 10).gap(8).alignItems(Align::Center);
         m_chip = &add<Panel>().size(8, 8);
         m_name = &add<Label>("").fontSize(12).grow(1).shrink(1).basis(0);
         m_type = &add<Label>("").fontSize(11).color(kMuted);
@@ -1038,7 +827,7 @@ public:
         m_chip->background(typeDef(n->type).color);
     }
     bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
-    bool onClick(const MouseEvent& e) override {
+    bool onMouseClick(const MouseEvent& e) override {
         m_s.select(m_node, e.mods, true);
         return true;
     }
@@ -1058,17 +847,20 @@ private:
     Label *m_name, *m_type;
 };
 
-class NodeList : public VirtualRows {
+class NodeList : public VirtualList {
 public:
-    explicit NodeList(Studio& s) : VirtualRows(kListRowH), m_s(s) {}
+    explicit NodeList(Studio& s) : VirtualList(kListRowH), m_s(s) {
+        rows([this](Widget& parent) -> Widget& { return parent.add<ListRow>(m_s); },
+             [this](Widget& row, int i) { static_cast<ListRow&>(row).bind(m_rows[i], i); });
+    }
     Label* countLabel = nullptr;
 
     void rebuild() {
         m_rows.clear();
         for (auto& n : m_s.doc.nodes)
             if (m_filter.empty() || lower(n->name).find(m_filter) != std::string::npos) m_rows.push_back(n.get());
-        setCount(int(m_rows.size()));
-        repaint();
+        count(int(m_rows.size()));
+        refresh();
         const std::string total = std::to_string(m_s.doc.nodes.size());
         if (countLabel) countLabel->text(m_filter.empty() ? total : std::to_string(m_rows.size()) + " / " + total);
     }
@@ -1079,10 +871,6 @@ public:
     }
     bool isFocusable() const override { return true; }
     bool onKey(const KeyEvent& e) override { return m_s.handleKey(e, *this); }
-
-protected:
-    Widget& makeRow(Widget& parent) override { return parent.add<ListRow>(m_s); }
-    void bindRow(Widget& row, int i) override { static_cast<ListRow&>(row).bind(m_rows[i], i); }
 
 private:
     static std::string lower(std::string s) {
@@ -1099,11 +887,11 @@ public:
     explicit NodeListPanel(Studio& s) : Panel(kPanel) {
         Label* count = nullptr;
         add<VBox>().padding(8).gap(6).build([&](VBox& top) {
-            top.add<HBox>().alignItems(YGAlignCenter).build([&](HBox& h) {
+            top.add<HBox>().alignItems(Align::Center).build([&](HBox& h) {
                 h.add<Label>("Nodes").fontSize(13).weight(600).grow(1);
                 count = &h.add<Label>("").fontSize(11).color(kMuted);
             });
-            top.add<InputText>("Filter nodes...", [&s](const std::string& f) { s.list->setFilter(f); });
+            top.add<InputText>("Filter nodes...").onChange([&s](const std::string& f) { s.list->setFilter(f); });
         });
         s.list = &add<NodeList>(s);
         s.list->countLabel = count;
@@ -1261,7 +1049,7 @@ private:
 class TrackHeader : public HBox {
 public:
     explicit TrackHeader(Studio& s) : m_s(s) {
-        width(kHeaderW).padding(YGEdgeHorizontal, 8).gap(6).alignItems(YGAlignCenter);
+        width(kHeaderW).padding(Edge::Horizontal, 8).gap(6).alignItems(Align::Center);
         m_chip = &add<Panel>().size(8, 8);
         m_name = &add<Label>("").fontSize(11).grow(1).shrink(1).basis(0);
     }
@@ -1273,7 +1061,7 @@ public:
         m_chip->background(typeDef(n->type).color);
     }
     bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Left; }
-    bool onClick(const MouseEvent& e) override {
+    bool onMouseClick(const MouseEvent& e) override {
         m_s.select(m_node, e.mods, true);
         return true;
     }
@@ -1309,12 +1097,15 @@ private:
     Lane* m_lane;
 };
 
-class TrackView : public VirtualRows {
+class TrackView : public VirtualList {
 public:
-    explicit TrackView(Studio& s) : VirtualRows(kTrackH), m_s(s) {}
+    explicit TrackView(Studio& s) : VirtualList(kTrackH), m_s(s) {
+        rows([this](Widget& parent) -> Widget& { return parent.add<TrackRow>(m_s); },
+             [this](Widget& row, int i) { static_cast<TrackRow&>(row).bind(m_s.doc.nodes[i].get(), i); });
+    }
     void rebuild() {
-        setCount(int(m_s.doc.nodes.size()));
-        repaint();
+        count(int(m_s.doc.nodes.size()));
+        refresh();
     }
     SkRect laneRect() const { return SkRect::MakeLTRB(m_bounds.left() + kHeaderW, m_bounds.top(), m_bounds.right(), m_bounds.bottom()); }
     // Repaint just the strips under the old and new playhead.
@@ -1325,16 +1116,12 @@ public:
         }
     }
     void onDrawOver(SkCanvas* c) override {
-        VirtualRows::onDrawOver(c); // scrollbar
+        VirtualList::onDrawOver(c); // scrollbar
         SkPaint p;
         p.setColor(kPlayhead);
         const float x = laneX(laneRect(), m_s.time);
         c->drawRect(SkRect::MakeLTRB(x - 1, m_bounds.top(), x + 1, m_bounds.bottom()), p);
     }
-
-protected:
-    Widget& makeRow(Widget& parent) override { return parent.add<TrackRow>(m_s); }
-    void bindRow(Widget& row, int i) override { static_cast<TrackRow&>(row).bind(m_s.doc.nodes[i].get(), i); }
 
 private:
     Studio& m_s;
@@ -1343,17 +1130,17 @@ private:
 class TimelinePanel : public Panel {
 public:
     explicit TimelinePanel(Studio& s) : Panel(kPanel), m_s(s) {
-        add<HBox>().height(34).padding(YGEdgeHorizontal, 8).gap(6).alignItems(YGAlignCenter).build([&](HBox& bar) {
+        add<HBox>().height(34).padding(Edge::Horizontal, 8).gap(6).alignItems(Align::Center).build([&](HBox& bar) {
             bar.add<ToolButton>(ToolButton::Start, [&s] { s.setTime(0); });
             m_play = &bar.add<ToolButton>(ToolButton::Play, [&s] { s.togglePlay(); });
             bar.add<ToolButton>(ToolButton::End, [&s] { s.setTime(kDuration); });
-            m_time = &bar.add<Label>("").fontSize(12).width(200).margin(YGEdgeLeft, 6);
+            m_time = &bar.add<Label>("").fontSize(12).width(200).margin(Edge::Left, 6);
             bar.add<Widget>().grow(1);
-            bar.add<Button>("Insert Keys (K)", [&s] { s.insertKeys(); }).alignSelf(YGAlignCenter);
-            bar.add<Button>("Delete Keys", [&s] { s.deleteSelectedKeys(); }).alignSelf(YGAlignCenter);
+            bar.add<Button>("Insert Keys (K)").onClick([&s] { s.insertKeys(); }).alignSelf(Align::Center);
+            bar.add<Button>("Delete Keys").onClick([&s] { s.deleteSelectedKeys(); }).alignSelf(Align::Center);
         });
         add<HBox>().height(24).build([&](HBox& row) {
-            row.add<HBox>().width(kHeaderW).alignItems(YGAlignCenter).padding(YGEdgeHorizontal, 8).build([&](HBox& h) {
+            row.add<HBox>().width(kHeaderW).alignItems(Align::Center).padding(Edge::Horizontal, 8).build([&](HBox& h) {
                 m_count = &h.add<Label>("").fontSize(11).color(kMuted);
             });
             m_ruler = &row.add<Ruler>(s).grow(1).basis(0);
@@ -1379,7 +1166,7 @@ public:
         m_tracks->rebuild();
         m_count->text(std::to_string(m_s.doc.nodes.size()) + " tracks");
     }
-    void repaint() { m_tracks->repaint(); }
+    void repaint() { m_tracks->refresh(); }
     // Playback is a Widget animation: one tick per frame while playing, looping at the end.
     void play() {
         const float start = m_s.time >= kDuration ? 0 : m_s.time, dur = kDuration - start;
@@ -1431,7 +1218,7 @@ SkPath shapePath(int kind, float w, float h) { // half extents, centred on 0
 class Preview : public Widget {
 public:
     explicit Preview(Studio& s) : m_s(s) {
-        padding(10).alignItems(YGAlignFlexStart);
+        padding(10).alignItems(Align::Start);
         m_info = &add<Label>("").fontSize(11).color(kMuted);
     }
     bool isFocusable() const override { return true; }
@@ -1517,13 +1304,13 @@ private:
 class StatusBar : public Panel {
 public:
     explicit StatusBar(Studio& s) : Panel(SkColorSetRGB(24, 24, 26)), m_s(s) {
-        direction(YGFlexDirectionRow).height(24).padding(YGEdgeHorizontal, 10).gap(24).alignItems(YGAlignCenter);
+        direction(Direction::Row).height(24).padding(Edge::Horizontal, 10).gap(24).alignItems(Align::Center);
         m_scene = &add<Label>("").fontSize(11).color(kMuted);
         m_view = &add<Label>("").fontSize(11).color(kMuted).grow(1);
         m_frame = &add<Label>("").fontSize(11).color(kMuted);
     }
     void sceneChanged(bool structure = false) {
-        if (structure || !m_widgets) m_widgets = count(*window()->getRootWidget());
+        if (structure || !m_widgets) m_widgets = count(*window()->root());
         int links = 0, keys = 0, selected = 0, shapes = 0;
         for (auto& n : m_s.doc.nodes) {
             for (Node* in : n->inputs) links += in != nullptr;
@@ -1647,7 +1434,7 @@ void Studio::select(Node* n, int mods, bool frame) {
 
 void Studio::selectionChanged() {
     editor->markPaintDirty();
-    list->repaint();
+    list->refresh();
     timeline->repaint();
     preview->markPaintDirty();
     status->sceneChanged();
@@ -1828,7 +1615,7 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
     s.editor->frame(first);
     drain();
     { // drag the first node by its title with injected mouse events
-        const SkRect b = first->view->mapToWindow(first->view->getBounds());
+        const SkRect b = first->view->mapToWindow(first->view->bounds());
         float x = b.left() + 40, y = b.top() + kTitleH / 2;
         win->injectMouseButton(x, y, MouseButton::Left, true);
         run("drag a node (mouse)", 120, [&](int i) { win->injectMouseMove(x += (i < 60 ? 2.0f : -2.0f), y += 1.0f); });
@@ -1840,7 +1627,7 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
         s.editor->frame(pos);
         drain();
         DragNumber* field = pos->view->numberField(kY);
-        const SkRect b = field->mapToWindow(field->getBounds());
+        const SkRect b = field->mapToWindow(field->bounds());
         float x = b.centerX();
         win->injectMouseButton(x, b.centerY(), MouseButton::Left, true);
         run("drag a number field (mouse)", 120, [&](int i) { win->injectMouseMove(x += (i < 60 ? 1.0f : -1.0f), b.centerY()); });
@@ -1851,7 +1638,7 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
         Node* out = s.doc.nodes[4].get();
         s.editor->frame(out);
         drain();
-        const SkRect b = out->view->mapToWindow(out->view->getBounds());
+        const SkRect b = out->view->mapToWindow(out->view->bounds());
         const SkPoint port{b.left() + inputPort(*out, kInShape).x(), b.top() + inputPort(*out, kInShape).y()};
         win->injectMouseButton(port.x(), port.y(), MouseButton::Left, true);
         run("drag a wire (mouse)", 120, [&](int i) {
@@ -1864,7 +1651,7 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
     { // box select from the empty space left of the first group
         s.editor->setPan({-300, -40});
         drain();
-        const SkRect eb = s.editor->getBounds();
+        const SkRect eb = s.editor->bounds();
         const float x0 = eb.left() + 20, y0 = eb.top() + 20;
         win->injectMouseButton(x0, y0, MouseButton::Left, true);
         run("box select (mouse)", 120, [&](int i) { win->injectMouseMove(x0 + i * 5.0f, y0 + i * 3.0f); });
@@ -1872,7 +1659,7 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
         drain();
     }
     run("open / close context menu (mouse)", 40, [&](int i) {
-        const SkRect eb = s.editor->getBounds();
+        const SkRect eb = s.editor->bounds();
         const float x = eb.left() + 30, y = eb.top() + 30;
         const MouseButton b = i % 2 ? MouseButton::Left : MouseButton::Right; // a left press outside closes it
         win->injectMouseButton(i % 2 ? x + 400 : x, y, b, true);
@@ -1924,7 +1711,7 @@ int main(int argc, char** argv) {
 
         const auto t0 = Clock::now();
         buildDemo(s.doc, 400);
-        DockSpace& dock = window->getRootWidget()->add<DockSpace>();
+        DockSpace& dock = window->root()->add<DockSpace>();
         auto [left, rest] = dock.splitHorizontal(0.16f);
         auto [center, right] = rest->splitHorizontal(0.70f);
         auto [top, bottom] = center->splitVertical(0.64f);
@@ -1936,14 +1723,14 @@ int main(int argc, char** argv) {
         s.timeline = &bottom->setContent<TimelinePanel>(s);
         right->setTabTitle("Preview");
         s.preview = &right->setContent<Preview>(s);
-        s.status = &window->getRootWidget()->add<StatusBar>(s);
+        s.status = &window->root()->add<StatusBar>(s);
         s.editor->onViewChanged = [&s] { s.status->viewChanged(); };
         window->setOnFrame([&s] { s.status->onFrame(); });
         for (auto& n : s.doc.nodes) s.editor->addView(n.get());
         s.editor->setPan({-40, -40});
         s.structureChanged();
         s.status->viewChanged();
-        std::printf("built %zu nodes, %d widgets in %.0f ms\n", s.doc.nodes.size(), countWidgets(*window->getRootWidget()), msSince(t0));
+        std::printf("built %zu nodes, %d widgets in %.0f ms\n", s.doc.nodes.size(), countWidgets(*window->root()), msSince(t0));
 
         if (bench) {
             runBench(app, window, s, center);

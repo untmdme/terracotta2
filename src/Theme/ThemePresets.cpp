@@ -24,8 +24,8 @@ static void themeChanged(Widget* w) {
 void applyTheme() {
     for (Window* win : Application::get().windows()) {
         ThemeScope scope(win->theme()); // windows with their own theme keep it, but still refresh
-        themeChanged(win->getRootWidget());
-        win->getRootWidget()->markLayoutDirty();
+        themeChanged(win->root());
+        win->root()->markLayoutDirty();
         win->addDamage(SkRect::MakeSize(win->size()));
     }
 }

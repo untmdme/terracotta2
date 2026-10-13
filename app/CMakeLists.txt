@@ -16,6 +16,9 @@ target_link_libraries(Node_Editor PRIVATE Terracotta2)
 add_executable(Node_Editor_Test node_editor/model_test.cpp)
 target_link_libraries(Node_Editor_Test PRIVATE Terracotta2)
 
+add_executable(Core_Test core_test.cpp)
+target_link_libraries(Core_Test PRIVATE Terracotta2)
+
 set(TC2_APPS Docking Benchmark Hello_World Widget_Gallery Node_Editor)
 
 # Skia only builds its SVG module for static builds (skia_enable_svg = !is_component_build),

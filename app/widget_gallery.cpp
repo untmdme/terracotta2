@@ -1,9 +1,5 @@
-// Terracotta2 widget gallery: what's in the box, plus four custom widgets built in this file.
-#include <terracotta2/Core/Application.hpp>
-#include <terracotta2/Core/Window.hpp>
-#include <terracotta2/Tools/Designer.hpp>
-#include <terracotta2/UI/Container.hpp>
-#include <terracotta2/UI/Controls.hpp>
+// Terracotta2 widget gallery: every built-in widget, plus two custom ones built in this file (Spinner, ContextArea).
+#include <terracotta2/Terracotta2.hpp>
 #include "include/core/SkPaint.h"
 #include <algorithm>
 #include <iostream>
@@ -13,91 +9,6 @@ using namespace Terracotta2;
 namespace {
 
 // ---------------------------------------------------------------- custom widgets
-
-// On/off switch; onClick() fires on press+release over us, and the knob slides via animate().
-class Toggle : public Widget {
-public:
-    explicit Toggle(bool on = false) : m_on(on), m_t(on) { size(44, 24); }
-    Toggle& onChange(std::function<void(bool)> fn) { m_onChange = std::move(fn); return *this; }
-
-    bool onClick(const MouseEvent&) override {
-        m_on = !m_on;
-        float from = m_t, to = m_on ? 1.0f : 0.0f;
-        animate(0.15f, [=, this](float k) { m_t = from + (to - from) * k; markPaintDirty(); });
-        if (m_onChange) m_onChange(m_on);
-        return true;
-    }
-    Cursor cursor() const override { return Cursor::Hand; }
-    void onDraw(SkCanvas* c) override {
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(theme().track);
-        c->drawRoundRect(m_bounds, 12, 12, p);
-        p.setColor(SkColorSetA(theme().accent, uint8_t(255 * m_t)));
-        c->drawRoundRect(m_bounds, 12, 12, p);
-        p.setColor(SK_ColorWHITE);
-        c->drawCircle(m_bounds.left() + 12 + 20 * m_t, m_bounds.centerY(), 9, p);
-    }
-
-private:
-    bool m_on;
-    float m_t; // knob position 0..1
-    std::function<void(bool)> m_onChange;
-};
-
-// Horizontal slider, value 0..1. Returning true from onMouseDown captures the drag.
-class Slider : public Widget {
-public:
-    Slider() { height(20); }
-    Slider& onChange(std::function<void(float)> fn) { m_onChange = std::move(fn); return *this; }
-    float value() const { return m_value; }
-    void setValue(float v) {
-        m_value = std::clamp(v, 0.0f, 1.0f);
-        markPaintDirty();
-        if (m_onChange) m_onChange(m_value);
-    }
-
-    bool onMouseDown(const MouseEvent& e) override { m_drag = true; dragTo(e.x); return true; }
-    bool onMouseMove(const MouseEvent& e) override { if (m_drag) dragTo(e.x); return m_drag; }
-    bool onMouseUp(const MouseEvent&) override { m_drag = false; return true; }
-    Cursor cursor() const override { return Cursor::Hand; }
-    void onDraw(SkCanvas* c) override {
-        float x0 = m_bounds.left() + kKnob, x1 = m_bounds.right() - kKnob, y = m_bounds.centerY();
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(theme().track);
-        c->drawRoundRect(SkRect::MakeLTRB(x0, y - 2, x1, y + 2), 2, 2, p);
-        p.setColor(theme().accent);
-        c->drawRoundRect(SkRect::MakeLTRB(x0, y - 2, x0 + (x1 - x0) * m_value, y + 2), 2, 2, p);
-        p.setColor(SK_ColorWHITE);
-        c->drawCircle(x0 + (x1 - x0) * m_value, y, kKnob, p);
-    }
-
-private:
-    static constexpr float kKnob = 8;
-    void dragTo(float x) { setValue((x - m_bounds.left() - kKnob) / (m_bounds.width() - 2 * kKnob)); }
-    float m_value = 0;
-    bool m_drag = false;
-    std::function<void(float)> m_onChange;
-};
-
-// Thin read-only bar, value 0..1.
-class ProgressBar : public Widget {
-public:
-    ProgressBar() { height(8); }
-    void set(float v) { m_value = v; markPaintDirty(); }
-    void onDraw(SkCanvas* c) override {
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(theme().track);
-        c->drawRoundRect(m_bounds, 4, 4, p);
-        p.setColor(theme().accent);
-        c->drawRoundRect(SkRect::MakeXYWH(m_bounds.left(), m_bounds.top(), m_bounds.width() * m_value, m_bounds.height()), 4, 4, p);
-    }
-
-private:
-    float m_value = 0;
-};
 
 // Loading spinner: a 1 s linear tween restarted from onComplete loops forever. Each tick
 // marks only the spinner dirty, so only its 32x32 square repaints (see TC2_SHOW_DAMAGE=1).
@@ -131,45 +42,23 @@ private:
     float m_angle = -90;
 };
 
-// Box + text. The Label is an ordinary child, so layout comes for free; clicks on it bubble up to our onClick.
-class Checkbox : public Widget {
+// Right-click anywhere on it for a context menu: openMenu at the pointer, in window coordinates.
+class ContextArea : public Panel {
 public:
-    explicit Checkbox(std::string text, bool checked = false) : m_checked(checked) {
-        padding(YGEdgeLeft, 26).minSize(0, 20).justify(YGJustifyCenter);
-        add<Label>(std::move(text));
+    ContextArea(Label& status) : Panel(theme().input.background), m_status(status) {
+        height(70).justify(Justify::Center).alignItems(Align::Center);
+        add<Label>("Right-click here").color(theme().textMuted);
     }
-    Checkbox& onChange(std::function<void(bool)> fn) { m_onChange = std::move(fn); return *this; }
-
-    bool onClick(const MouseEvent&) override {
-        m_checked = !m_checked;
-        markPaintDirty();
-        if (m_onChange) m_onChange(m_checked);
+    bool onMouseDown(const MouseEvent& e) override { return e.button == MouseButton::Right; }
+    bool onMouseClick(const MouseEvent& e) override {
+        if (e.button != MouseButton::Right) return false;
+        static const std::vector<std::string> items = {"Cut", "Copy", "Paste", "Delete"};
+        openMenu(*this, mapToWindow(SkPoint{e.x, e.y}), items, [this](int i) { m_status.text("Context menu: " + items[i]); });
         return true;
-    }
-    Cursor cursor() const override { return Cursor::Hand; }
-    void onMouseEnter() override { markPaintDirty(); } // isHovered() changed: repaint
-    void onMouseLeave() override { markPaintDirty(); }
-    void onDraw(SkCanvas* c) override {
-        SkRect box = SkRect::MakeXYWH(m_bounds.left(), m_bounds.centerY() - 9, 18, 18);
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(m_checked ? theme().accent : theme().input.background);
-        c->drawRoundRect(box, 4, 4, p);
-        p.setStyle(SkPaint::kStroke_Style);
-        p.setColor(m_checked || isHovered() ? theme().accent : theme().input.border);
-        c->drawRoundRect(box, 4, 4, p);
-        if (!m_checked) return;
-        p.setColor(SK_ColorWHITE);
-        p.setStrokeWidth(2);
-        p.setStrokeCap(SkPaint::kRound_Cap);
-        float x = box.left(), y = box.top();
-        c->drawLine(x + 4.5f, y + 9.5f, x + 7.5f, y + 12.5f, p);
-        c->drawLine(x + 7.5f, y + 12.5f, x + 13.5f, y + 5.5f, p);
     }
 
 private:
-    bool m_checked;
-    std::function<void(bool)> m_onChange;
+    Label& m_status;
 };
 
 // ---------------------------------------------------------------- helpers
@@ -197,15 +86,15 @@ int main() {
     try {
         Application app;
         Window* window = app.createWindow({.title = "Terracotta2 - Widget Gallery", .width = 1100, .height = 760});
-        ScrollView& page = window->getRootWidget()->add<ScrollView>().padding(20).padding(YGEdgeRight, 26).gap(16);
+        ScrollView& page = window->root()->add<ScrollView>().padding(20).padding(Edge::Right, 26).gap(16);
 
         // Designer: theme editor + widget inspector in its own window; edits apply live.
-        page.add<Button>("Open designer", [] { openDesigner(); });
+        page.add<Button>("Open designer").onClick([] { openDesigner(); });
 
         // Animation: the spinner repaints every frame, nothing else does.
         section(page, "Animation", "Spinner loops animate(..., Ease::Linear) from onComplete. Run with TC2_SHOW_DAMAGE=1: only its square is outlined each frame; the rest of the window is never repainted. Stop it and the app goes back to 0 frames.")
             .build([&](Panel& card) {
-                card.add<HBox>().gap(16).alignItems(YGAlignCenter).build([&](HBox& row) {
+                card.add<HBox>().gap(16).alignItems(Align::Center).build([&](HBox& row) {
                     auto& spinner = row.add<Spinner>();
                     row.add<Toggle>(true).onChange([s = &spinner](bool on) { s->setSpinning(on); });
                     row.add<Label>("Spinning").color(theme().textMuted);
@@ -214,11 +103,11 @@ int main() {
 
         // Text: Label size, weight, colour, font; long text wraps to the width its parent gives it.
         section(page, "Text", "Label(text).fontSize().weight().color().font().lineHeight()").build([](Panel& card) {
-            card.add<HBox>().gap(16).alignItems(YGAlignCenter).build([](HBox& row) {
+            card.add<HBox>().gap(16).alignItems(Align::Center).build([](HBox& row) {
                 for (float size : {11, 13, 16, 20, 28}) row.add<Label>("Size " + std::to_string(int(size))).fontSize(size);
                 for (int weight : {200, 400, 600, 800}) row.add<Label>("Weight " + std::to_string(weight)).fontSize(16).weight(weight);
             });
-            card.add<HBox>().gap(16).alignItems(YGAlignCenter).build([](HBox& row) {
+            card.add<HBox>().gap(16).alignItems(Align::Center).build([](HBox& row) {
                 row.add<Label>("Accent").fontSize(16).color(SkColorSetRGB(90, 150, 240));
                 row.add<Label>("Warning").fontSize(16).color(SkColorSetRGB(230, 170, 60));
                 row.add<Label>("Success").fontSize(16).color(SkColorSetRGB(110, 180, 90));
@@ -227,7 +116,7 @@ int main() {
             card.add<Label>("Long text wraps on its own. Put a Label in a column and it becomes a paragraph; cap its width "
                             "with maxSize() for a comfortable line length and set lineHeight() for air between lines. Every "
                             "widget is a flexbox item, so there is no separate text-layout API to learn.")
-                .lineHeight(1.5f).maxSize(640, YGUndefined);
+                .lineHeight(1.5f).maxWidth(640);
         });
 
         // Handles for widgets that callbacks need before they are declared: ref(ptr) fills them in mid-chain.
@@ -237,40 +126,42 @@ int main() {
         ProgressBar* bar = nullptr;
         Canvas* chart = nullptr;
 
-        // Buttons: Button(text, onClick); the callback updates a Label through .text().
-        section(page, "Buttons", "Button(text, onClick). Hover and press states come from theme().button.").build([&](Panel& card) {
-            card.add<HBox>().gap(8).alignItems(YGAlignCenter).build([&](HBox& row) {
-                row.add<Button>("Click me", [&] { clicks->text("Clicked " + std::to_string(++count) + " times"); });
-                row.add<Button>("Reset", [&] { clicks->text("No clicks yet"); count = 0; });
-                row.add<Button>("Print to stdout", [] { std::cout << "Hello from a button\n"; });
+        // Buttons: Button(text).onClick(fn); the callback updates a Label through .text().
+        section(page, "Buttons", "Button(text).onClick(fn). Tab moves focus, Space or Enter clicks. Hover and press states come from theme().button.").build([&](Panel& card) {
+            card.add<HBox>().gap(8).alignItems(Align::Center).build([&](HBox& row) {
+                row.add<Button>("Click me").onClick([&] { clicks->text("Clicked " + std::to_string(++count) + " times"); });
+                row.add<Button>("Reset").onClick([&] { clicks->text("No clicks yet"); count = 0; }).tooltip("Sets the counter back to zero");
+                row.add<Button>("Print to stdout").onClick([] { std::cout << "Hello from a button\n"; });
             });
             card.add<Label>("No clicks yet").color(theme().textMuted).ref(clicks);
         });
 
         // Text input: onChange fires per edit; here it mirrors into a Label.
-        section(page, "Text input", "InputText(placeholder, onChange). Type, then drag or Shift+arrows to select; Cmd+A, C, X and V work as usual.")
+        section(page, "Text input", "InputText(placeholder).onChange(fn). Type, then drag or Shift+arrows to select; Cmd+A, C, X and V work as usual.")
             .build([](Panel& card) {
                 auto* hello = &card.add<Label>("Hello, stranger!").fontSize(20);
-                card.add<InputText>("Your name", [hello](const std::string& name) { hello->text("Hello, " + (name.empty() ? "stranger" : name) + "!"); })
+                card.add<InputText>("Your name").onChange([hello](const std::string& name) { hello->text("Hello, " + (name.empty() ? "stranger" : name) + "!"); })
                     .width(280);
+                card.add<Label>("TextArea(placeholder).rows(3).maxRows(8): Enter adds a line, the field grows to 8 lines, then scrolls.").fontSize(12).color(theme().textMuted);
+                card.add<TextArea>("Notes...").rows(3).maxRows(8).width(420);
             });
 
         // Selectable text: opt in per Label.
         section(page, "Selectable text", "Label(text).selectable(true)").build([](Panel& card) {
             card.add<Label>("Any Label can be made selectable. Double-click picks a word, Cmd+A takes everything, and the text "
                             "stays an ordinary flexbox item, so it wraps and lays out like the rest of the page.")
-                .selectable(true).lineHeight(1.5f).maxSize(640, YGUndefined);
+                .selectable(true).lineHeight(1.5f).maxWidth(640);
             card.add<Label>("Drag to select, Cmd+C to copy").fontSize(12).color(theme().textMuted);
         });
 
         // Containers: VBox / HBox / Panel, with padding, gap, grow and nesting.
         section(page, "Containers", "VBox stacks, HBox lines up, Panel adds a background. padding is inside, gap is between, grow shares leftover space.")
-            .add<HBox>().gap(16).alignItems(YGAlignFlexStart).build([](HBox& row) {
+            .add<HBox>().gap(16).alignItems(Align::Start).build([](HBox& row) {
                 tile(row, "VBox: padding(10).gap(6)").build([](Panel& p) {
                     for (SkColor c : {SkColorSetRGB(214, 90, 70), SkColorSetRGB(230, 160, 60), SkColorSetRGB(110, 180, 90)})
                         swatch(p, c, 120, 24);
                 });
-                tile(row, "HBox: grow(1) and grow(2)").width(240).direction(YGFlexDirectionRow).build([](Panel& p) {
+                tile(row, "HBox: grow(1) and grow(2)").width(240).direction(Direction::Row).build([](Panel& p) {
                     swatch(p, SkColorSetRGB(60, 160, 190), 0, 40).grow(1);
                     swatch(p, SkColorSetRGB(100, 120, 210), 0, 40).grow(2);
                 });
@@ -278,34 +169,73 @@ int main() {
                     p.add<Panel>(theme().panelBackground).padding(10).gap(6).build([](Panel& card) {
                         card.add<Label>("Card title").weight(600);
                         card.add<Label>("Panels nest freely.").fontSize(12).color(theme().textMuted);
-                        card.add<Button>("Action", [] {});
+                        card.add<Button>("Action").onClick([] {});
                     });
                 });
             });
 
-        // Custom widgets: Toggle, Slider, ProgressBar and Checkbox, all defined at the top of this file.
+        // Value controls: value() reads, value(v) sets, onChange(fn) fires on user edits.
         // Their callbacks reach widgets declared further down (percent, bar, chart) through the ref() handles.
-        section(page, "Custom widgets", "Subclass Widget, override onDraw and onClick / the mouse handlers. Drag the slider: the bar, the label and the chart below follow.")
+        auto syncSlider = [&](float v) {
+            percent->text(std::to_string(int(v * 100 + 0.5f)) + "%");
+            bar->value(v);
+            chart->markPaintDirty();
+        };
+        section(page, "Value controls", "Toggle, Checkbox, Slider and ProgressBar. Drag the slider (or focus it with Tab and use the arrows): the bar, the label and the chart below follow.")
             .build([&](Panel& card) {
-                card.add<HBox>().gap(24).alignItems(YGAlignCenter).build([&](HBox& row) {
+                card.add<HBox>().gap(24).alignItems(Align::Center).build([&](HBox& row) {
                     row.add<Toggle>(true).onChange([&](bool on) { chart->visible(on); });
                     row.add<Label>("Show chart");
                     row.add<Checkbox>("Show percentage", true).onChange([&](bool on) { percent->visible(on); });
                 });
-                card.add<HBox>().gap(12).alignItems(YGAlignCenter).build([&](HBox& row) {
-                    row.add<Slider>().width(320).ref(slider).onChange([&](float v) {
-                        percent->text(std::to_string(int(v * 100 + 0.5f)) + "%");
-                        bar->set(v);
-                        chart->markPaintDirty();
-                    });
+                card.add<HBox>().gap(12).alignItems(Align::Center).build([&](HBox& row) {
+                    row.add<Slider>().width(320).ref(slider).onChange(syncSlider);
                     row.add<Label>("").width(44).ref(percent);
                 });
                 card.add<ProgressBar>().width(320).ref(bar);
             });
 
+        // Dropdowns and menus: arrows move, Enter picks, Escape closes; focus returns to the opener.
+        section(page, "Dropdowns and menus", "Dropdown(items, selected).onChange(fn) and openMenu(widget, at, items, onPick). With the keyboard: Tab to the dropdown, Space to open, arrows, Enter.")
+            .build([](Panel& card) {
+                Label& status = card.add<Label>("Nothing picked yet").color(theme().textMuted);
+                card.add<HBox>().gap(12).alignItems(Align::Center).build([&](HBox& row) {
+                    row.add<Dropdown>(std::vector<std::string>{"Small", "Medium", "Large"}, 1).width(140)
+                        .onChange([&status](int i) { status.text("Dropdown: index " + std::to_string(i)); });
+                    Button& menuButton = row.add<Button>("Open menu");
+                    menuButton.onClick([&status, b = &menuButton] {
+                        const SkRect r = b->mapToWindow(b->bounds());
+                        openMenu(*b, {r.left(), r.bottom() + 2}, {"New", "Open...", "Save", "Save As..."},
+                                 [&status](int i) { status.text("Menu: item " + std::to_string(i)); });
+                    });
+                });
+                card.add<ContextArea>(status).width(320);
+            });
+
+        // Tooltips: any widget, .tooltip(text). Delay and colours come from theme().tooltip.
+        section(page, "Tooltips", "widget.tooltip(text). Rest the pointer on a button; a click hides it.").build([](Panel& card) {
+            card.add<HBox>().gap(8).build([](HBox& row) {
+                row.add<Button>("Save").tooltip("Write the document to disk (Cmd+S)");
+                row.add<Button>("Export").tooltip("Save a copy as PNG, SVG or PDF");
+                row.add<Toggle>(false).tooltip("Toggles take tooltips too, like every widget");
+            });
+        });
+
+        // Editors bound to data that lives elsewhere: they read and write through get/set.
+        static float amount = 42;
+        static SkColor swatchColor = SkColorSetRGB(70, 130, 230);
+        section(page, "Value editors", "DragNumber(get, set, min, max) and ColorPicker(get, set) edit values that live elsewhere; refresh() re-reads them. Drag the number sideways.")
+            .build([](Panel& card) {
+                card.add<HBox>().gap(24).alignItems(Align::Start).build([](HBox& row) {
+                    row.add<DragNumber>([] { return amount; }, [](float v) { amount = v; }, 0, 100).width(140);
+                    Panel& preview = row.add<Panel>(swatchColor).size(60, 60);
+                    row.add<ColorPicker>([] { return swatchColor; }, [p = &preview](SkColor c) { swatchColor = c; p->background(c); });
+                });
+            });
+
         // Canvas: a draw lambda, no subclass needed. markPaintDirty() asks for a repaint.
         section(page, "Canvas", "Canvas(lambda) for custom drawing. This donut reads slider->value() on every repaint.").build([&](Panel& card) {
-            card.add<HBox>().gap(16).alignItems(YGAlignCenter).build([&](HBox& row) {
+            card.add<HBox>().gap(16).alignItems(Align::Center).build([&](HBox& row) {
                 row.add<Canvas>([&](SkCanvas* c, const SkRect& r) {
                         SkRect ring = r.makeInset(12, 12);
                         SkPaint p;
@@ -323,7 +253,8 @@ int main() {
             });
         });
 
-        slider->setValue(0.35f); // everything exists now: this fires onChange once to sync the views
+        slider->value(0.35f); // everything exists now: sync the views once
+        syncSlider(0.35f);
 
         app.run();
     } catch (const std::exception& e) {

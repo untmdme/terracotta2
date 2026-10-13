@@ -15,8 +15,7 @@
 #include "terracotta2/Core/Application.hpp"
 #include "terracotta2/Core/Window.hpp"
 #include "terracotta2/Theme/Theme.hpp"
-#include "terracotta2/UI/Container.hpp"
-#include "terracotta2/UI/Controls.hpp"
+#include "terracotta2/Terracotta2.hpp"
 
 namespace Terracotta2 {
 
@@ -65,19 +64,19 @@ std::string describe(const Widget& w) {
 
 VBox& section(Widget& parent, const std::string& title, bool open) {
     VBox& box = parent.add<VBox>().gap(6);
-    box.add<Button>(title, [&box] {
+    box.add<Button>(title).onClick([&box] {
         Widget* body = box.children()[1].get();
         body->visible(!body->isVisible());
-    }).alignSelf(YGAlignStretch);
-    return box.add<VBox>().gap(4).padding(YGEdgeLeft, 8).visible(open);
+    }).alignSelf(Align::Stretch);
+    return box.add<VBox>().gap(4).padding(Edge::Left, 8).visible(open);
 }
 
 void heading(Widget& parent, const std::string& text) {
-    parent.add<Label>(text).weight(600).color(theme().textMuted).margin(YGEdgeTop, 6);
+    parent.add<Label>(text).weight(600).color(theme().textMuted).margin(Edge::Top, 6);
 }
 
 HBox& row(Widget& parent, const std::string& name) {
-    HBox& r = parent.add<HBox>().gap(4).alignItems(YGAlignCenter);
+    HBox& r = parent.add<HBox>().gap(4).alignItems(Align::Center);
     r.add<Label>(name).width(kNameW);
     return r;
 }
@@ -92,7 +91,7 @@ class Swatch : public Widget {
 public:
     explicit Swatch(std::function<SkColor()> get) : m_get(std::move(get)) { size(48, 20); }
     std::function<void()> onPress;
-    bool onClick(const MouseEvent&) override { if (onPress) onPress(); return true; }
+    bool onMouseClick(const MouseEvent&) override { if (onPress) onPress(); return true; }
     Cursor cursor() const override { return Cursor::Hand; }
     void onDraw(SkCanvas* c) override {
         SkPaint p;
@@ -111,18 +110,18 @@ private:
 void colorRow(Widget& parent, const std::string& name, std::function<SkColor()> get, std::function<void(SkColor)> set) {
     Swatch& swatch = row(parent, name).add<Swatch>(get);
     ColorPicker& picker = parent.add<ColorPicker>(get, [set, &swatch](SkColor c) { set(c); swatch.markPaintDirty(); })
-                              .margin(YGEdgeLeft, kNameW + 4).margin(YGEdgeBottom, 6).visible(false);
+                              .margin(Edge::Left, kNameW + 4).margin(Edge::Bottom, 6).visible(false);
     swatch.onPress = [&picker] { picker.visible(!picker.isVisible()); }; // both live and die with `parent`
 }
 
 void textRow(Widget& parent, const std::string& name, const std::string& value, std::function<void(const std::string&)> set) {
-    row(parent, name).add<InputText>("", std::move(set)).grow(1).setValue(value);
+    row(parent, name).add<InputText>("").onChange(std::move(set)).grow(1).value(value);
 }
 
 // A button showing the current value; a click applies `next` and rebuilds the inspector (to show it).
 void rebuildInspector();
 void cycleRow(Widget& parent, const std::string& name, const std::string& value, std::function<void(Widget&)> next) {
-    row(parent, name).add<Button>(value, [next] {
+    row(parent, name).add<Button>(value).onClick([next] {
         if (Widget* s = selected()) next(*s);
         rebuildInspector(); // destroys this button: nothing may follow
     });
@@ -189,6 +188,16 @@ std::vector<ThemeField> themeFields() {
         N("Scroll", "thickness", "scroll.thickness", t.scroll.thickness, 1, 30),
         N("Scroll", "margin", "scroll.margin", t.scroll.margin, 0, 20),
         N("Scroll", "wheel speed", "scroll.wheelSpeed", t.scroll.wheelSpeed, 0.1f, 5),
+        C("Popup", "background", "popup.background", t.popup.background),
+        C("Popup", "border", "popup.border", t.popup.border),
+        C("Popup", "item hover", "popup.itemHover", t.popup.itemHover),
+        N("Popup", "corner radius", "popup.cornerRadius", t.popup.cornerRadius, 0, 30),
+        N("Popup", "item height", "popup.itemHeight", t.popup.itemHeight, 12, 60),
+        C("Tooltip", "background", "tooltip.background", t.tooltip.background),
+        C("Tooltip", "border", "tooltip.border", t.tooltip.border),
+        C("Tooltip", "text", "tooltip.text", t.tooltip.text),
+        N("Tooltip", "font size", "tooltip.fontSize", t.tooltip.fontSize, 6, 32),
+        N("Tooltip", "delay (s)", "tooltip.delaySec", t.tooltip.delaySec, 0, 3),
     };
 }
 
@@ -221,12 +230,12 @@ void buildThemeEditor(Widget& page) {
         applyTheme();
     });
 
-    page.add<HBox>().gap(8).margin(YGEdgeTop, 8).build([](HBox& r) {
-        r.add<Button>("Reset to dark theme", [] {
+    page.add<HBox>().gap(8).margin(Edge::Top, 8).build([](HBox& r) {
+        r.add<Button>("Reset to dark theme").onClick([] {
             appTheme() = darkTheme();
             applyTheme(); // the editors re-read their values through onThemeChanged
         });
-        r.add<Button>("Copy theme as C++", [] { Application::get().setClipboard(themeAsCode()); });
+        r.add<Button>("Copy theme as C++").onClick([] { Application::get().setClipboard(themeAsCode()); });
     });
 }
 
@@ -247,11 +256,11 @@ DragNumber& prop(Widget& parent, const std::string& name, std::function<float(Wi
 // A Yoga dimension: drag (from the current size while it is auto) plus an "auto" reset.
 void sizeProp(Widget& parent, const std::string& name, YGValue (*get)(YGNodeConstRef), void (*set)(YGNodeRef, float),
               void (*reset)(YGNodeRef), bool horizontal) {
-    prop(parent, name, [get](Widget& s) { return points(get(s.getYGNode())); },
-         [set](Widget& s, float v) { set(s.getYGNode(), v); s.markLayoutDirty(); }, 0, 4000)
-        .whenAuto([horizontal] { Widget* s = selected(); return s ? (horizontal ? s->getBounds().width() : s->getBounds().height()) : 0.0f; });
-    parent.children().back()->add<Button>("auto", [reset] {
-        if (Widget* s = selected()) { reset(s->getYGNode()); s->markLayoutDirty(); }
+    prop(parent, name, [get](Widget& s) { return points(get(s.yogaNode())); },
+         [set](Widget& s, float v) { set(s.yogaNode(), v); s.markLayoutDirty(); }, 0, 4000)
+        .whenAuto([horizontal] { Widget* s = selected(); return s ? (horizontal ? s->bounds().width() : s->bounds().height()) : 0.0f; });
+    parent.children().back()->add<Button>("auto").onClick([reset] {
+        if (Widget* s = selected()) { reset(s->yogaNode()); s->markLayoutDirty(); }
         rebuildInspector();
     });
 }
@@ -270,12 +279,12 @@ void rebuildInspector() {
         body.add<Label>(g.picking ? "Click a widget in another window." : "Nothing selected.").color(theme().textMuted);
         return;
     }
-    const SkRect b = w->getBounds();
+    const SkRect b = w->bounds();
     char buf[96];
     std::snprintf(buf, sizeof buf, "x %.1f  y %.1f  w %.1f  h %.1f", b.x(), b.y(), b.width(), b.height());
     body.add<Label>(describe(*w)).weight(600);
     body.add<Label>(buf).color(theme().textMuted);
-    YGNodeRef n = w->getYGNode();
+    YGNodeRef n = w->yogaNode();
 
     // ---- type-specific
     if (auto* l = dynamic_cast<Label*>(w)) {
@@ -300,7 +309,7 @@ void rebuildInspector() {
     }
     if (auto* in = dynamic_cast<InputText*>(w)) {
         heading(body, "InputText");
-        textRow(body, "value", in->value(), [](const std::string& v) { if (auto* s = sel<InputText>()) s->setValue(v); });
+        textRow(body, "value", in->value(), [](const std::string& v) { if (auto* s = sel<InputText>()) s->value(v); });
     }
     if (dynamic_cast<ScrollView*>(w)) {
         heading(body, "ScrollView");
@@ -311,17 +320,17 @@ void rebuildInspector() {
     // ---- layout (Yoga)
     heading(body, "Flex");
     cycleRow(body, "direction", YGFlexDirectionToString(YGNodeStyleGetFlexDirection(n)),
-             [](Widget& s) { s.direction(YGFlexDirection((YGNodeStyleGetFlexDirection(s.getYGNode()) + 1) % 4)); });
+             [](Widget& s) { s.direction(Direction((YGNodeStyleGetFlexDirection(s.yogaNode()) + 1) % 4)); });
     cycleRow(body, "justify", YGJustifyToString(YGNodeStyleGetJustifyContent(n)),
-             [](Widget& s) { s.justify(YGJustify((YGNodeStyleGetJustifyContent(s.getYGNode()) + 1) % 6)); });
+             [](Widget& s) { s.justify(Justify((YGNodeStyleGetJustifyContent(s.yogaNode()) + 1) % 6)); });
     cycleRow(body, "align items", YGAlignToString(YGNodeStyleGetAlignItems(n)),
-             [](Widget& s) { s.alignItems(YGAlign((YGNodeStyleGetAlignItems(s.getYGNode()) + 1) % 9)); });
+             [](Widget& s) { s.alignItems(Align((YGNodeStyleGetAlignItems(s.yogaNode()) + 1) % 9)); });
     cycleRow(body, "align self", YGAlignToString(YGNodeStyleGetAlignSelf(n)),
-             [](Widget& s) { s.alignSelf(YGAlign((YGNodeStyleGetAlignSelf(s.getYGNode()) + 1) % 9)); });
+             [](Widget& s) { s.alignSelf(Align((YGNodeStyleGetAlignSelf(s.yogaNode()) + 1) % 9)); });
     cycleRow(body, "wrap", YGWrapToString(YGNodeStyleGetFlexWrap(n)),
-             [](Widget& s) { s.wrap(YGWrap((YGNodeStyleGetFlexWrap(s.getYGNode()) + 1) % 3)); });
-    prop(body, "grow", [](Widget& s) { return YGNodeStyleGetFlexGrow(s.getYGNode()); }, [](Widget& s, float v) { s.grow(v); }, 0, 10, 0.02f, 2);
-    prop(body, "shrink", [](Widget& s) { return YGNodeStyleGetFlexShrink(s.getYGNode()); }, [](Widget& s, float v) { s.shrink(v); }, 0, 10, 0.02f, 2);
+             [](Widget& s) { s.wrap(YGNodeStyleGetFlexWrap(s.yogaNode()) == YGWrapNoWrap); });
+    prop(body, "grow", [](Widget& s) { return YGNodeStyleGetFlexGrow(s.yogaNode()); }, [](Widget& s, float v) { s.grow(v); }, 0, 10, 0.02f, 2);
+    prop(body, "shrink", [](Widget& s) { return YGNodeStyleGetFlexShrink(s.yogaNode()); }, [](Widget& s, float v) { s.shrink(v); }, 0, 10, 0.02f, 2);
     sizeProp(body, "basis", YGNodeStyleGetFlexBasis, YGNodeStyleSetFlexBasis, YGNodeStyleSetFlexBasisAuto, true);
 
     heading(body, "Size");
@@ -334,26 +343,26 @@ void rebuildInspector() {
     sizeProp(body, "max height", YGNodeStyleGetMaxHeight, YGNodeStyleSetMaxHeight, [](YGNodeRef r) { YGNodeStyleSetMaxHeight(r, YGUndefined); }, false);
 
     heading(body, "Spacing");
-    prop(body, "gap", [](Widget& s) { float v = YGNodeStyleGetGap(s.getYGNode(), YGGutterAll); return std::isnan(v) ? 0.0f : v; },
+    prop(body, "gap", [](Widget& s) { float v = YGNodeStyleGetGap(s.yogaNode(), YGGutterAll); return std::isnan(v) ? 0.0f : v; },
          [](Widget& s, float v) { s.gap(v); }, 0, 200);
-    const struct { const char* name; YGEdge edge; } edges[] = {
-        {"left", YGEdgeLeft}, {"top", YGEdgeTop}, {"right", YGEdgeRight}, {"bottom", YGEdgeBottom}};
+    const struct { const char* name; Edge edge; } edges[] = {
+        {"left", Edge::Left}, {"top", Edge::Top}, {"right", Edge::Right}, {"bottom", Edge::Bottom}};
     for (auto e : edges)
-        prop(body, std::string("padding ") + e.name, [e](Widget& s) { return YGNodeLayoutGetPadding(s.getYGNode(), e.edge); },
+        prop(body, std::string("padding ") + e.name, [e](Widget& s) { return YGNodeLayoutGetPadding(s.yogaNode(), YGEdge(e.edge)); },
              [e](Widget& s, float v) { s.padding(e.edge, v); }, 0, 200);
     for (auto e : edges)
-        prop(body, std::string("margin ") + e.name, [e](Widget& s) { return YGNodeLayoutGetMargin(s.getYGNode(), e.edge); },
+        prop(body, std::string("margin ") + e.name, [e](Widget& s) { return YGNodeLayoutGetMargin(s.yogaNode(), YGEdge(e.edge)); },
              [e](Widget& s, float v) { s.margin(e.edge, v); }, -200, 200);
 
     heading(body, "Position");
     cycleRow(body, "type", YGPositionTypeToString(YGNodeStyleGetPositionType(n)), [](Widget& s) {
-        YGPositionType t = YGNodeStyleGetPositionType(s.getYGNode());
-        YGNodeStyleSetPositionType(s.getYGNode(), t == YGPositionTypeAbsolute ? YGPositionTypeRelative : YGPositionTypeAbsolute);
+        YGPositionType t = YGNodeStyleGetPositionType(s.yogaNode());
+        YGNodeStyleSetPositionType(s.yogaNode(), t == YGPositionTypeAbsolute ? YGPositionTypeRelative : YGPositionTypeAbsolute);
         s.markLayoutDirty();
     });
     for (auto e : edges)
-        prop(body, e.name, [e](Widget& s) { return points(YGNodeStyleGetPosition(s.getYGNode(), e.edge)); },
-             [e](Widget& s, float v) { YGNodeStyleSetPosition(s.getYGNode(), e.edge, v); s.markLayoutDirty(); }, -4000, 4000);
+        prop(body, e.name, [e](Widget& s) { return points(YGNodeStyleGetPosition(s.yogaNode(), YGEdge(e.edge))); },
+             [e](Widget& s, float v) { YGNodeStyleSetPosition(s.yogaNode(), YGEdge(e.edge), v); s.markLayoutDirty(); }, -4000, 4000);
 
     heading(body, "Widget");
     cycleRow(body, "visible", w->isVisible() ? "yes" : "no", [](Widget& s) { s.visible(!s.isVisible()); });
@@ -362,11 +371,11 @@ void rebuildInspector() {
     // ---- tree navigation, relative to the current selection
     heading(body, "Tree");
     if (w->parent())
-        body.add<Button>("Parent: " + describe(*w->parent()), [] {
+        body.add<Button>("Parent: " + describe(*w->parent())).onClick([] {
             if (Widget* s = selected(); s && s->parent()) select(s->parent());
         });
     for (size_t i = 0; i < w->children().size(); ++i)
-        body.add<Button>("Child: " + describe(*w->children()[i]), [i] {
+        body.add<Button>("Child: " + describe(*w->children()[i])).onClick([i] {
             if (Widget* s = selected(); s && i < s->children().size()) select(s->children()[i].get());
         });
 }
@@ -382,7 +391,7 @@ void select(Widget* w) {
 // Mouse hook while picking: hover outlines the widget under the pointer, a press selects it.
 bool pick(Window* win, float x, float y, bool press) {
     if (win == g.win) return false; // the designer itself stays usable
-    Widget* hit = win->getRootWidget()->hitTest(x, y);
+    Widget* hit = win->root()->hitTest(x, y);
     if (alive(g.target) && g.target != win) g.target->setHighlight(nullptr);
     g.target = win;
     win->setHighlight(hit);
@@ -412,9 +421,9 @@ Window* openDesigner() {
         g = {};
     });
 
-    ScrollView& page = g.win->getRootWidget()->add<Panel>().grow(1).add<ScrollView>().padding(12).gap(10);
+    ScrollView& page = g.win->root()->add<Panel>().grow(1).add<ScrollView>().padding(12).gap(10);
     VBox& inspect = section(page, "Inspector", true);
-    inspect.add<Button>("Pick widget", [] {
+    inspect.add<Button>("Pick widget").onClick([] {
         if (alive(g.target)) g.target->setHighlight(nullptr);
         g.picking = true;
         Application::get().setMouseHook(pick);

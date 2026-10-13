@@ -6,18 +6,15 @@
 //  * SvgIcon needs Skia's SVG module: target_link_libraries(... unofficial::skia::modules::svg)
 //  * Images decode through the OS codecs Skia always builds in (ImageIO on macOS, WIC on
 //    Windows), so PNG/JPEG/GIF/... need no libpng/libjpeg in vcpkg.json.
-#include <terracotta2/Core/Application.hpp>
-#include <terracotta2/Core/Window.hpp>
-#include <terracotta2/Theme/Theme.hpp>
-#include <terracotta2/UI/Container.hpp>
-#include <terracotta2/UI/Controls.hpp>
 
+#include <terracotta2/Terracotta2.hpp>
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkData.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkStream.h"
+#include "include/core/SkSurface.h"
 #include "include/gpu/graphite/Image.h"
 #include "modules/svg/include/SkSVGDOM.h"
 #include "modules/svg/include/SkSVGSVG.h"
@@ -29,6 +26,9 @@
 
 #include <algorithm>
 #include <functional>
+#include <map>
+#include <memory>
+#include <tuple>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -67,9 +67,9 @@ public:
 
     explicit Image(sk_sp<SkImage> image = nullptr) {
         // Like Button: don't stretch across a column by default (that would scale the image up).
-        // alignSelf(YGAlignStretch) opts back in, for a full-width image.
-        alignSelf(YGAlignFlexStart);
-        YGNodeSetMeasureFunc(getYGNode(), &Image::measure);
+        // alignSelf(Align::Stretch) opts back in, for a full-width image.
+        alignSelf(Align::Start);
+        YGNodeSetMeasureFunc(yogaNode(), &Image::measure);
         setImage(std::move(image));
     }
     explicit Image(const std::string& path) : Image(decode(path)) {}
@@ -136,62 +136,106 @@ private:
 
 // ---------------------------------------------------------------- SvgIcon
 
-// Renders an SVG file (or SVG source text) scaled to the widget's size, crisp at any DPI because
-// it is drawn as vectors every time. tint(color) recolours every painted pixel (monochrome icons);
-// tint(0) keeps the file's own colours.
+// An SVG is parsed once per file (or inline source) and shared by every SvgIcon showing it. Each
+// (pixel size, tint) it is drawn at is rasterized once into a GPU texture, shared too: a list with a
+// thousand rows of the same icon parses one file and uploads one small texture, and every repaint
+// after that is a textured quad. Sizes are device pixels (screen scale and zoom included), so
+// icons stay crisp on any display and inside zoomable canvases.
+struct SvgDoc {
+    sk_sp<SkSVGDOM> dom;
+    SkSize natural{24, 24};
+    std::map<std::tuple<int, int, SkColor>, sk_sp<SkImage>> textures; // (width px, height px, tint)
+};
+
+std::shared_ptr<SvgDoc> loadSvg(const std::string& key, const std::function<sk_sp<SkSVGDOM>()>& parse) {
+    static std::map<std::string, std::shared_ptr<SvgDoc>> cache; // ponytail: never evicted; fine for an app's icon set
+    std::shared_ptr<SvgDoc>& doc = cache[key];
+    if (doc) return doc;
+    doc = std::make_shared<SvgDoc>();
+    doc->dom = parse();
+    if (doc->dom) {
+        // Natural size: width/height attributes, else the viewBox, else a 24x24 icon grid.
+        SkSize n = doc->dom->containerSize();
+        if (n.isEmpty())
+            if (const auto& vb = doc->dom->getRoot()->getViewBox()) n = {vb->width(), vb->height()};
+        if (!n.isEmpty()) doc->natural = n;
+        doc->dom->setContainerSize(doc->natural);
+    }
+    return doc;
+}
+
+// Renders an SVG file (or SVG source text) scaled to the widget's size, aspect ratio kept.
+// tint(color) recolours every painted pixel (monochrome icons); tint(0) keeps the file's own colours.
 class SvgIcon : public Widget {
 public:
     explicit SvgIcon(const std::string& path = {}, float px = 24) {
         size(px, px);
-        if (!path.empty()) {
-            SkFILEStream file(path.c_str());
-            if (file.isValid()) setDom(SkSVGDOM::Builder().make(file));
-        }
+        if (!path.empty())
+            setDoc(loadSvg("file:" + path, [&]() -> sk_sp<SkSVGDOM> {
+                SkFILEStream file(path.c_str());
+                return file.isValid() ? SkSVGDOM::Builder().make(file) : nullptr;
+            }));
     }
     // Inline SVG: add<SvgIcon>().source(R"(<svg viewBox="0 0 24 24">...</svg>)")
     SvgIcon& source(std::string_view svg) {
-        SkMemoryStream mem(svg.data(), svg.size(), /*copyData=*/false);
-        setDom(SkSVGDOM::Builder().make(mem));
+        const std::string text(svg);
+        setDoc(loadSvg("source:" + text, [&] {
+            SkMemoryStream mem(text.data(), text.size(), /*copyData=*/false);
+            return SkSVGDOM::Builder().make(mem);
+        }));
         return *this;
     }
     SvgIcon& tint(SkColor c) { m_tint = c; markPaintDirty(); return *this; }
-    bool loaded() const { return m_dom != nullptr; }
+    bool loaded() const { return m_doc && m_doc->dom; }
 
     void onDraw(SkCanvas* canvas) override {
-        if (!m_dom || m_bounds.isEmpty()) return;
-        // Fit the SVG's own coordinate space into our bounds, centred, aspect ratio kept.
-        const float s = std::min(m_bounds.width() / m_natural.width(), m_bounds.height() / m_natural.height());
-        canvas->save();
-        canvas->translate(m_bounds.centerX() - m_natural.width() * s / 2, m_bounds.centerY() - m_natural.height() * s / 2);
-        canvas->scale(s, s);
+        if (!loaded() || m_bounds.isEmpty()) return;
+        // Fit the SVG's own coordinate space into our bounds, centred.
+        const SkSize n = m_doc->natural;
+        const float s = std::min(m_bounds.width() / n.width(), m_bounds.height() / n.height());
+        const SkRect dst = SkRect::MakeXYWH(m_bounds.centerX() - n.width() * s / 2, m_bounds.centerY() - n.height() * s / 2,
+                                            n.width() * s, n.height() * s);
+        // The canvas matrix holds the screen scale and any zoom: rasterize at that many pixels.
+        const float dev = canvas->getLocalToDeviceAs3x3().getScaleX();
+        const int pw = std::max(1, int(std::ceil(dst.width() * dev))), ph = std::max(1, int(std::ceil(dst.height() * dev)));
+        auto& textures = m_doc->textures;
+        const auto key = std::make_tuple(pw, ph, m_tint);
+        auto it = textures.find(key);
+        if (it == textures.end()) {
+            // ponytail: a continuous zoom makes one size per step; drop them all once they pile up
+            if (textures.size() >= 64) textures.clear();
+            it = textures.emplace(key, rasterize(canvas, pw, ph)).first;
+        }
+        canvas->drawImageRect(it->second.get(), dst, SkSamplingOptions(SkFilterMode::kLinear));
+    }
+
+private:
+    void setDoc(std::shared_ptr<SvgDoc> doc) {
+        m_doc = std::move(doc);
+        markPaintDirty();
+    }
+
+    sk_sp<SkImage> rasterize(SkCanvas* target, int pw, int ph) const {
+        sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(pw, ph));
+        SkCanvas* c = surface->getCanvas();
+        c->scale(pw / m_doc->natural.width(), ph / m_doc->natural.height());
         if (m_tint) {
             // Draw into a layer, then keep the layer's coverage and replace its colour (SrcIn).
             SkPaint layer;
             layer.setColorFilter(SkColorFilters::Blend(m_tint, SkBlendMode::kSrcIn));
-            const SkRect area = SkRect::MakeSize(m_natural);
-            canvas->saveLayer(&area, &layer);
+            const SkRect area = SkRect::MakeSize(m_doc->natural);
+            c->saveLayer(&area, &layer);
         }
-        m_dom->render(canvas);
-        if (m_tint) canvas->restore();
-        canvas->restore();
+        m_doc->dom->render(c);
+        if (m_tint) c->restore();
+        sk_sp<SkImage> pixels = surface->makeImageSnapshot();
+        // Upload once; all windows share one Graphite context, so the texture works in any of them.
+        if (skgpu::graphite::Recorder* rec = target->recorder())
+            if (sk_sp<SkImage> texture = SkImages::TextureFromImage(rec, pixels.get(), {})) return texture;
+        return pixels;
     }
 
-private:
-    void setDom(sk_sp<SkSVGDOM> dom) {
-        m_dom = std::move(dom);
-        if (m_dom) {
-            // Natural size: width/height attributes, else the viewBox, else a 24x24 icon grid.
-            m_natural = m_dom->containerSize();
-            if (m_natural.isEmpty())
-                if (const auto& vb = m_dom->getRoot()->getViewBox()) m_natural = {vb->width(), vb->height()};
-            if (m_natural.isEmpty()) m_natural = {24, 24};
-            m_dom->setContainerSize(m_natural);
-        }
-        markPaintDirty();
-    }
-
-    sk_sp<SkSVGDOM> m_dom;
-    SkSize m_natural{24, 24};
+    std::shared_ptr<SvgDoc> m_doc;
     SkColor m_tint = 0;
 };
 
@@ -228,7 +272,7 @@ std::string asset(const char* name) { return std::string(kAssets) + "/" + name; 
 // Icon + text button. A Button is a row whose only child is its Label, so an extra child
 // adopted at index 0 lines up to the left of the text.
 Button& iconButton(Widget& parent, const char* icon, const char* text, SkColor tint, std::function<void()> onClick) {
-    Button& b = parent.add<Button>(text, std::move(onClick)).gap(6);
+    Button& b = parent.add<Button>(text).onClick(std::move(onClick)).gap(6);
     auto svg = std::make_unique<SvgIcon>(asset(icon), 16);
     svg->tint(tint);
     b.adopt(std::move(svg), 0);
@@ -248,12 +292,12 @@ int main() {
     try {
         Application app;
         Window* window = app.createWindow({.title = "Terracotta2 - Images & SVG", .width = 980, .height = 760});
-        ScrollView& page = window->getRootWidget()->add<ScrollView>().padding(20).padding(YGEdgeRight, 26).gap(16);
+        ScrollView& page = window->root()->add<ScrollView>().padding(20).padding(Edge::Right, 26).gap(16);
         UiQueue ui;
         std::vector<std::jthread> workers; // declared after `app`: joined before the Application dies
 
         section(page, "Image", "Image(path): natural size by default; width() or height() scales it with the aspect ratio kept.")
-            .add<HBox>().gap(16).alignItems(YGAlignFlexEnd).build([](HBox& row) {
+            .add<HBox>().gap(16).alignItems(Align::End).build([](HBox& row) {
                 row.add<Image>(asset("landscape.png")).width(240).cornerRadius(8);
                 row.add<Image>(asset("landscape.png")).height(90);
                 row.add<Image>(asset("missing.png")).size(90, 90); // decode failed: draws nothing, layout still works
@@ -273,7 +317,7 @@ int main() {
 
         section(page, "SVG icons", "SvgIcon(path, px). tint(color) recolours monochrome icons; tint(0) keeps the file's colours.")
             .build([](Panel& card) {
-                card.add<HBox>().gap(18).alignItems(YGAlignCenter).build([](HBox& row) {
+                card.add<HBox>().gap(18).alignItems(Align::Center).build([](HBox& row) {
                     for (const char* file : {"home.svg", "heart.svg", "settings.svg"})
                         row.add<SvgIcon>(asset(file), 24).tint(theme().label.text);
                     row.add<SvgIcon>(asset("heart.svg"), 24).tint(SkColorSetRGB(230, 90, 100));
@@ -292,7 +336,7 @@ int main() {
             .build([&](Panel& card) {
                 Image& target = card.add<Image>().size(240, 150).cornerRadius(8);
                 Label& status = card.add<Label>("Not loaded").fontSize(12).color(theme().textMuted);
-                card.add<Button>("Load on a worker", [&, t = &target, s = &status] {
+                card.add<Button>("Load on a worker").onClick([&, t = &target, s = &status] {
                     s->text("Decoding...");
                     workers.emplace_back([&ui, t, s] {
                         sk_sp<SkImage> img = Image::decode(asset("landscape.png")); // worker: Skia only, no widgets

@@ -1,7 +1,9 @@
 #include "terracotta2/UI/Widget.hpp"
 #include <algorithm>
 #include <cassert>
+#include "include/core/SkPaint.h"
 #include "terracotta2/Core/Window.hpp"
+#include "terracotta2/Theme/Theme.hpp"
 
 namespace Terracotta2 {
 
@@ -253,6 +255,21 @@ bool Widget::isHovered() const {
     Window* w = window();
     Widget* h = w ? w->hoveredWidget() : nullptr;
     return h && isAncestorOf(h);
+}
+
+bool Widget::isFocused() const {
+    Window* w = window();
+    return w && w->focusedWidget() == this;
+}
+
+void Widget::drawFocusRing(SkCanvas* canvas, float cornerRadius) const {
+    if (!isFocused() || !window()->focusVisible()) return;
+    SkPaint p;
+    p.setAntiAlias(true);
+    p.setStyle(SkPaint::kStroke_Style);
+    p.setStrokeWidth(2);
+    p.setColor(theme().accent);
+    canvas->drawRoundRect(m_bounds.makeInset(1, 1), cornerRadius, cornerRadius, p);
 }
 
 } // namespace Terracotta2

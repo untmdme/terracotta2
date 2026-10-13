@@ -8,9 +8,9 @@
 //    `parent` and returns a T&. Setters are chainable and return the widget's own type, and
 //    build(fn) runs fn on the widget, so the code is shaped like the tree it creates:
 //
-//        page.add<HBox>().gap(12).alignItems(YGAlignCenter).build([](HBox& row) {
+//        page.add<HBox>().gap(12).alignItems(Align::Center).build([](HBox& row) {
 //            row.add<Label>("Name").fontSize(11).color(kMuted).width(110);
-//            row.add<InputText>("Enter value...", [](const std::string&) {}).grow(1);
+//            row.add<InputText>("Enter value...").onChange([](const std::string&) {}).grow(1);
 //        });
 //
 //    Keep the reference when you need the widget later: `Label& status = row.add<Label>("");`
@@ -22,7 +22,7 @@
 //  * Alignment: justify places children along the main axis, alignItems along the cross axis
 //    (default: stretch), alignSelf overrides it for one child.
 //  * A Label measures itself and WRAPS to the width its parent gives it. Put one in a column
-//    and it becomes a paragraph; cap it with maxSize(680, YGUndefined) for a readable line
+//    and it becomes a paragraph; cap it with maxWidth(680) for a readable line
 //    length; put two in a row with grow(1) and you get text columns.
 //  * Content taller than its container? Put it in a ScrollView (children keep their natural
 //    height; wheel / trackpad / drag the thumb).
@@ -33,11 +33,7 @@
 //    parent places ALL its children itself (see the Custom tab).
 //  * Docking: drag a tab onto a pane's centre (merge) or edge (split). Drag any tab outside
 //    the window to float it; drag a floating window's tab back into the main window to dock.
-#include <terracotta2/Core/Application.hpp>
-#include <terracotta2/Core/Window.hpp>
-#include <terracotta2/Docking/DockSpace.hpp>
-#include <terracotta2/UI/Container.hpp>
-#include <terracotta2/UI/Controls.hpp>
+#include <terracotta2/Terracotta2.hpp>
 #include "include/core/SkPaint.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkRRect.h"
@@ -68,7 +64,7 @@ Panel& box(Widget& parent, SkColor c, float w, float h, const std::string& capti
     if (!std::isnan(w)) p.width(w);
     if (!std::isnan(h)) p.height(h);
     if (!caption.empty())
-        p.alignItems(YGAlignCenter).justify(YGJustifyCenter).build([&](Panel& b) {
+        p.alignItems(Align::Center).justify(Justify::Center).build([&](Panel& b) {
             b.add<Label>(caption).fontSize(11).weight(600).color(SK_ColorWHITE);
         });
     return p;
@@ -88,7 +84,7 @@ void demo(Widget& page, const char* title, const std::string& calls, float heigh
     page.add<VBox>().gap(3).build([&](VBox& group) {
         group.add<Label>(title).fontSize(13).weight(600);
         group.add<Label>(calls).fontSize(11).color(kMuted);
-        group.add<Panel>(kArea).height(height).direction(YGFlexDirectionRow).padding(8).gap(8).build(fill);
+        group.add<Panel>(kArea).height(height).direction(Direction::Row).padding(8).gap(8).build(fill);
     });
 }
 
@@ -96,7 +92,7 @@ void demo(Widget& page, const char* title, const std::string& calls, float heigh
 class Page : public ScrollView {
 public:
     Page() {
-        padding(16).padding(YGEdgeRight, 22).gap(14); // 22: keep content clear of the scrollbar
+        padding(16).padding(Edge::Right, 22).gap(14); // 22: keep content clear of the scrollbar
     }
     void onDraw(SkCanvas* canvas) override {
         SkPaint p;
@@ -130,12 +126,12 @@ public:
             .fontSize(12).color(kMuted);
 
         // --- type scale: a ROW per sample = [fixed-width caption][sample] ---
-        header(*this, "Type scale", "Row = HBox().gap(14).alignItems(YGAlignCenter); the caption has width(110) so samples line up.");
+        header(*this, "Type scale", "Row = HBox().gap(14).alignItems(Align::Center); the caption has width(110) so samples line up.");
         struct Step { const char* name; float size; int weight; };
         const Step scale[] = {{"Display", 32, 700}, {"H1", 26, 700}, {"H2", 21, 600}, {"H3", 17, 600},
                               {"Body", 14, 400},    {"Small", 12, 400}, {"Caption", 11, 400}};
         for (const Step& s : scale)
-            add<HBox>().gap(14).alignItems(YGAlignCenter).build([&](HBox& row) {
+            add<HBox>().gap(14).alignItems(Align::Center).build([&](HBox& row) {
                 row.add<Label>(std::string(s.name) + "  " + std::to_string(int(s.size)) + " / " + std::to_string(s.weight))
                     .fontSize(11).color(kMuted).width(110);
                 row.add<Label>("The quick brown fox jumps over the lazy dog")
@@ -148,7 +144,7 @@ public:
         const char* sentence = "Sphinx of black quartz, judge my vow";
         add<VBox>().gap(6).build([&](VBox& col) {
             auto sample = [&](const std::string& caption, auto&& configure) {
-                col.add<HBox>().gap(14).alignItems(YGAlignCenter).build([&](HBox& row) {
+                col.add<HBox>().gap(14).alignItems(Align::Center).build([&](HBox& row) {
                     row.add<Label>(caption).fontSize(11).color(kMuted).width(110);
                     configure(row);
                 });
@@ -170,9 +166,9 @@ public:
             .fontSize(11).color(kMuted).lineHeight(1.4f);
 
         // --- paragraphs in a column: Labels wrap to the width they are given ---
-        header(*this, "Paragraphs", "Body 14px, lineHeight(1.45), maxSize(680, YGUndefined). Resize the window or the dock pane: the lines re-wrap.");
+        header(*this, "Paragraphs", "Body 14px, lineHeight(1.45), maxWidth(680). Resize the window or the dock pane: the lines re-wrap.");
         for (int i = 0; i < 4; ++i)
-            add<Label>(kLorem[i]).fontSize(14).lineHeight(1.45f).maxSize(680, YGUndefined);
+            add<Label>(kLorem[i]).fontSize(14).lineHeight(1.45f).maxWidth(680);
 
         // --- two text columns: a row of Labels, each grow(1) ---
         header(*this, "Two columns", "HBox().gap(16) + two Labels with grow(1).basis(0): equal widths, each wraps on its own.");
@@ -202,34 +198,34 @@ public:
         add<Label>("Each box shows one idea. The grey line under a title lists the exact calls used.").fontSize(12).color(kMuted);
 
         // 1. direction
-        demo(*this, "Row", "direction(YGFlexDirectionRow)  - children go left to right", 56, [](Panel& d) {
+        demo(*this, "Row", "direction(Direction::Row)  - children go left to right", 56, [](Panel& d) {
             for (int i = 0; i < 3; ++i) box(d, kPalette[i], 70, 36, std::to_string(i + 1));
         });
-        demo(*this, "Column", "direction(YGFlexDirectionColumn)  - children go top to bottom", 150, [](Panel& d) {
-            d.direction(YGFlexDirectionColumn);
+        demo(*this, "Column", "direction(Direction::Column)  - children go top to bottom", 150, [](Panel& d) {
+            d.direction(Direction::Column);
             for (int i = 0; i < 3; ++i) box(d, kPalette[i], 120, 30, std::to_string(i + 1));
         });
 
         // 2. justify: distribution along the MAIN axis (here: horizontal)
-        struct J { const char* name; YGJustify v; };
-        for (J j : {J{"YGJustifyFlexStart", YGJustifyFlexStart}, J{"YGJustifyCenter", YGJustifyCenter},
-                    J{"YGJustifyFlexEnd", YGJustifyFlexEnd}, J{"YGJustifySpaceBetween", YGJustifySpaceBetween},
-                    J{"YGJustifySpaceAround", YGJustifySpaceAround}, J{"YGJustifySpaceEvenly", YGJustifySpaceEvenly}})
+        struct J { const char* name; Justify v; };
+        for (J j : {J{"Justify::Start", Justify::Start}, J{"Justify::Center", Justify::Center},
+                    J{"Justify::End", Justify::End}, J{"Justify::SpaceBetween", Justify::SpaceBetween},
+                    J{"Justify::SpaceAround", Justify::SpaceAround}, J{"Justify::SpaceEvenly", Justify::SpaceEvenly}})
             demo(*this, "justify  (main axis)", std::string("justify(") + j.name + ")", 52, [&](Panel& d) {
                 d.justify(j.v);
                 for (int i = 0; i < 3; ++i) box(d, kPalette[i], 56, 34);
             });
 
         // 3. alignItems: placement on the CROSS axis (here: vertical). Children differ in height.
-        struct A { const char* name; YGAlign v; };
-        for (A a : {A{"YGAlignFlexStart", YGAlignFlexStart}, A{"YGAlignCenter", YGAlignCenter},
-                    A{"YGAlignFlexEnd", YGAlignFlexEnd}, A{"YGAlignStretch", YGAlignStretch}}) {
+        struct A { const char* name; Align v; };
+        for (A a : {A{"Align::Start", Align::Start}, A{"Align::Center", Align::Center},
+                    A{"Align::End", Align::End}, A{"Align::Stretch", Align::Stretch}}) {
             std::string note = std::string("alignItems(") + a.name + ")";
-            if (a.v == YGAlignStretch) note += "  - children without a height fill the row";
+            if (a.v == Align::Stretch) note += "  - children without a height fill the row";
             demo(*this, "alignItems  (cross axis)", note, 92, [&](Panel& d) {
                 d.alignItems(a.v);
                 const float heights[] = {24, 44, 64};
-                for (int i = 0; i < 3; ++i) box(d, kPalette[i + 2], 56, a.v == YGAlignStretch ? kAuto : heights[i]);
+                for (int i = 0; i < 3; ++i) box(d, kPalette[i + 2], 56, a.v == Align::Stretch ? kAuto : heights[i]);
             });
         }
 
@@ -245,9 +241,9 @@ public:
         });
 
         // 5. wrapping
-        demo(*this, "wrap", "wrap(YGWrapWrap) + gap(8) with 16 fixed 60x28 chips - they flow onto new lines", 150,
+        demo(*this, "wrap", "wrap() + gap(8) with 16 fixed 60x28 chips - they flow onto new lines", 150,
              [](Panel& d) {
-                 d.wrap(YGWrapWrap);
+                 d.wrap();
                  for (int i = 0; i < 16; ++i) box(d, kPalette[i % 6], 60, 28, std::to_string(i + 1));
              });
 
@@ -261,21 +257,21 @@ public:
 
         // 7. alignSelf
         demo(*this, "alignSelf",
-             "container: alignItems(YGAlignFlexStart); 2nd child: alignSelf(YGAlignCenter), 3rd: YGAlignFlexEnd", 100,
+             "container: alignItems(Align::Start); 2nd child: alignSelf(Align::Center), 3rd: Align::End", 100,
              [](Panel& d) {
-                 d.alignItems(YGAlignFlexStart);
+                 d.alignItems(Align::Start);
                  box(d, kPalette[0], 64, 30, "start");
-                 box(d, kPalette[1], 64, 30, "center").alignSelf(YGAlignCenter);
-                 box(d, kPalette[2], 64, 30, "end").alignSelf(YGAlignFlexEnd);
+                 box(d, kPalette[1], 64, 30, "center").alignSelf(Align::Center);
+                 box(d, kPalette[2], 64, 30, "end").alignSelf(Align::End);
              });
 
         // 8. nesting: a column holding a toolbar, a row (sidebar | content) and a status bar
         demo(*this, "Nesting: toolbar + sidebar + content + status bar",
              "column [ toolbar 28px | row [ sidebar 90px | content grow(1) ] (grow 1) | status 18px ]", 220, [](Panel& d) {
-                 d.direction(YGFlexDirectionColumn).padding(0).gap(2);
+                 d.direction(Direction::Column).padding(0).gap(2);
                  box(d, kPalette[4], kAuto, 28, "toolbar (height 28)");
                  d.add<HBox>().grow(1).gap(2).build([](HBox& body) {
-                     box(body, kPalette[3], 90, kAuto, "sidebar").alignItems(YGAlignCenter);
+                     box(body, kPalette[3], 90, kAuto, "sidebar").alignItems(Align::Center);
                      box(body, kPalette[5], kAuto, kAuto, "content (grow 1)").grow(1);
                  });
                  box(d, kPalette[2], kAuto, 18, "status (height 18)");
@@ -383,7 +379,7 @@ public:
         : m_accent(accent), m_rows(std::move(rows)) {
         add<NodeTitle>(graph, index, title);
         for (const NodeRow& r : m_rows)
-            add<HBox>().height(kRowH).alignItems(YGAlignCenter).padding(YGEdgeHorizontal, 20).gap(6).build([&](HBox& row) {
+            add<HBox>().height(kRowH).alignItems(Align::Center).padding(Edge::Horizontal, 20).gap(6).build([&](HBox& row) {
                 row.add<Label>(r.name).fontSize(11).grow(1);
                 if (!r.value.empty()) row.add<Label>(r.value).fontSize(11).color(kMuted);
             });
@@ -507,7 +503,7 @@ private:
 };
 
 NodeTitle::NodeTitle(NodeGraph& graph, int index, const std::string& title) : m_graph(graph), m_index(index) {
-    height(kTitleH).alignItems(YGAlignCenter).padding(YGEdgeHorizontal, 10);
+    height(kTitleH).alignItems(Align::Center).padding(Edge::Horizontal, 10);
     add<Label>(title).fontSize(12).weight(600).color(SK_ColorWHITE);
 }
 bool NodeTitle::onMouseDown(const MouseEvent& e) {
@@ -562,9 +558,9 @@ public:
                            c->drawPath(path.detach(), p);
                            c->restore();
                        }).height(130);
-        add<HBox>().gap(10).alignItems(YGAlignCenter).build([&](HBox& row) {
+        add<HBox>().gap(10).alignItems(Align::Center).build([&](HBox& row) {
             Label& info = row.add<Label>("harmonics: 1").fontSize(12).color(kMuted).width(90);
-            row.add<Button>("Add harmonic", [this, w = &wave, l = &info] {
+            row.add<Button>("Add harmonic").onClick([this, w = &wave, l = &info] {
                 m_harmonics = m_harmonics % 8 + 1;
                 l->text("harmonics: " + std::to_string(m_harmonics));
                 w->markPaintDirty(); // repaints the canvas only
@@ -579,7 +575,7 @@ public:
             const struct { const char* name; SkColor color; float value; } defs[] = {
                 {"Gain", kPalette[1], 0.7f}, {"Mix", kPalette[2], 0.35f}, {"Drive", kPalette[0], 0.9f}};
             for (auto& d : defs)
-                knobs.add<VBox>().gap(4).alignItems(YGAlignCenter).build([&](VBox& col) {
+                knobs.add<VBox>().gap(4).alignItems(Align::Center).build([&](VBox& col) {
                     auto percent = [](float v) { char b[16]; std::snprintf(b, sizeof b, "%d%%", int(v * 100 + 0.5f)); return std::string(b); };
                     Knob& knob = col.add<Knob>(d.color, d.value);
                     Label& value = col.add<Label>(percent(d.value)).fontSize(12);
@@ -610,7 +606,7 @@ public:
         header(*this, "4. absolute()",
                "Normal siblings flow; an absolute() child is taken out of the flow and placed at (x, y) inside its parent. "
                "Here a badge Canvas (with a Label child, centred by Yoga) overlays the corner of a card.");
-        add<Panel>(SkColorSetRGB(44, 44, 48)).size(190, 80).alignItems(YGAlignCenter).justify(YGJustifyCenter)
+        add<Panel>(SkColorSetRGB(44, 44, 48)).size(190, 80).alignItems(Align::Center).justify(Justify::Center)
             .build([](Panel& card) {
                 card.add<Label>("Inbox").fontSize(14).weight(600);
                 card.add<Canvas>([](SkCanvas* c, const SkRect& r) {
@@ -621,8 +617,8 @@ public:
                     })
                     .size(22, 22)
                     .absolute(190 - 22 - 6, 6) // top-right corner of the 190-wide card
-                    .alignItems(YGAlignCenter)
-                    .justify(YGJustifyCenter)
+                    .alignItems(Align::Center)
+                    .justify(Justify::Center)
                     .build([](Canvas& badge) { badge.add<Label>("3").fontSize(11).weight(700).color(SK_ColorWHITE); });
             });
     }
@@ -639,8 +635,8 @@ public:
         padding(10).gap(6);
         add<Label>("Properties").fontSize(16).weight(600);
         add<Label>("Name").fontSize(12).color(kMuted);
-        add<InputText>("Enter value...", [](const std::string& v) { std::cout << "Input changed: " << v << "\n"; });
-        add<Button>("Submit", [] { std::cout << "Button clicked!\n"; });
+        add<InputText>("Enter value...").onChange([](const std::string& v) { std::cout << "Input changed: " << v << "\n"; });
+        add<Button>("Submit").onClick([] { std::cout << "Button clicked!\n"; });
     }
 };
 
@@ -668,7 +664,7 @@ public:
 class ViewportPanel : public Panel {
 public:
     ViewportPanel() : Panel(SkColorSetRGB(45, 45, 48)) {
-        alignItems(YGAlignCenter).justify(YGJustifyCenter); // centred on both axes
+        alignItems(Align::Center).justify(Justify::Center); // centred on both axes
         add<Label>("Viewport").fontSize(21).weight(600).color(kMuted);
         add<Label>("Open the Typography, Layout and Custom tabs next to this one").fontSize(12).color(kMuted);
     }
@@ -678,7 +674,7 @@ public:
 class SwatchPanel : public Panel {
 public:
     SwatchPanel() : Panel(SkColorSetRGB(28, 28, 28)) {
-        direction(YGFlexDirectionRow).wrap(YGWrapWrap).gap(8).padding(12);
+        direction(Direction::Row).wrap().gap(8).padding(12);
         for (int i = 0; i < 12; ++i) box(*this, kPalette[i % 6], 48, 48);
     }
 };
@@ -693,7 +689,7 @@ int main() {
         theme().fontFamily = "Helvetica Neue";
 
         Window* window = app.createWindow({.title = "Terracotta2 - Layout & Text", .width = 1600, .height = 900});
-        DockSpace& dockSpace = window->getRootWidget()->add<DockSpace>();
+        DockSpace& dockSpace = window->root()->add<DockSpace>();
 
         // left column | right column;  left column: tabbed top over console
         auto [leftPane, rightPane] = dockSpace.splitHorizontal(0.70f);

@@ -9,11 +9,6 @@
 // present / vsync waits (Fifo), so it is a floor set by the display, not pure CPU work. GPU
 // execution time is NOT measured. "mut" is wall time spent in the mutation itself (setScrollY,
 // Label::text, tree walks, ...) outside renderFrame().
-#include <terracotta2/Core/Application.hpp>
-#include <terracotta2/Core/Window.hpp>
-#include <terracotta2/Theme/Theme.hpp>
-#include <terracotta2/UI/Container.hpp>
-#include <terracotta2/UI/Controls.hpp>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -22,6 +17,8 @@
 #else
 #include <mach/mach.h>
 #endif
+
+#include <terracotta2/Terracotta2.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -118,7 +115,7 @@ std::string rowText(int i, bool wrap) {
 // index label | text label (grows, wraps if long) | status chip
 struct RowRefs { Label* idx; Label* txt; Panel* chip; };
 RowRefs makeRow(Widget& parent, int i, bool wrap) {
-    auto& box = parent.add<HBox>().padding(YGEdgeHorizontal, 12).padding(YGEdgeVertical, 4).gap(10).alignItems(YGAlignCenter);
+    auto& box = parent.add<HBox>().padding(Edge::Horizontal, 12).padding(Edge::Vertical, 4).gap(10).alignItems(Align::Center);
     RowRefs r;
     r.idx = &box.add<Label>(std::to_string(i), 12.0f).width(60).color(kMuted);
     r.txt = &box.add<Label>(rowText(i, wrap)).grow(1).shrink(1).basis(0);
@@ -141,51 +138,6 @@ ListScene buildList(Widget& root, int n) {
     return s;
 }
 
-// Manual-layout virtualized list: `rows` logical rows, a fixed pool of recycled row widgets.
-class VirtualList : public Widget {
-public:
-    static constexpr float kRowH = 24.0f;
-    static constexpr int kPool = 40; // 900/24 = 37.5 visible + margin
-
-    explicit VirtualList(int rows) : m_rows(rows) {
-        manualLayout(); // before adding children
-        grow(1).basis(0);
-        for (int k = 0; k < kPool; ++k) m_slots.push_back({makeRow(*this, -1, false), -1});
-        setScrollY(0);
-    }
-    float scrollY() const { return m_scroll; }
-    void setScrollY(float y) {
-        m_scroll = std::clamp(y, 0.0f, std::max(0.0f, m_rows * kRowH - m_bounds.height()));
-        const int first = (int)(m_scroll / kRowH);
-        for (int k = 0; k < kPool; ++k) { // recycle: rebind slot k to row first+k
-            Slot& s = m_slots[k];
-            const int r = first + k;
-            if (s.row == r || r >= m_rows) continue;
-            s.row = r;
-            s.refs.idx->text(std::to_string(r));
-            s.refs.txt->text(rowText(r, false));
-            s.refs.chip->background(kPalette[r % 6]);
-        }
-        place();
-    }
-    void onLayout() override { place(); } // resize: re-fit widths
-
-private:
-    struct Slot { RowRefs refs; int row; };
-    void place() {
-        for (int k = 0; k < kPool; ++k) {
-            Slot& s = m_slots[k];
-            Widget* box = s.refs.idx->parent();
-            const bool live = s.row >= 0 && s.row < m_rows;
-            box->visible(live);
-            if (live) box->setFrame(SkRect::MakeXYWH(0, s.row * kRowH - m_scroll, m_bounds.width(), kRowH));
-        }
-    }
-    int m_rows;
-    float m_scroll = 0;
-    std::vector<Slot> m_slots;
-};
-
 // ---------------------------------------------------------------- the harness
 
 struct Bench {
@@ -197,7 +149,7 @@ struct Bench {
 
     Bench() {
         win = app.createWindow({.title = "Terracotta2 Benchmark", .width = 1600, .height = 900});
-        root = win->getRootWidget();
+        root = win->root();
         winArea = win->size().width() * win->size().height();
         // Wait until the window can present, then start from an empty root.
         // Warm-up scene: first text draw / first frame pays shader + glyph-atlas setup, which
@@ -489,7 +441,7 @@ int main(int argc, char** argv) {
     {
         std::vector<Panel*> chips;
         Setup s = b.build([&] {
-            auto& grid = root.add<HBox>().grow(1).basis(0).wrap(YGWrapWrap).padding(8);
+            auto& grid = root.add<HBox>().grow(1).basis(0).wrap().padding(8);
             for (int i = 0; i < 1000; ++i) chips.push_back(&grid.add<Panel>(kPalette[i % 6]).size(30, 30).margin(4));
         });
         auto animateChips = [&](const std::vector<int>& idx) {
@@ -511,11 +463,20 @@ int main(int argc, char** argv) {
         b.clear();
     }
 
-    // ---- 7. virtualized list, manual layout ----
+    // ---- 7. virtualized list (VirtualList) ----
     {
         const int logical = scaled(100000);
         VirtualList* vl = nullptr;
-        Setup s = b.build([&] { vl = &root.add<VirtualList>(logical); });
+        Setup s = b.build([&] {
+            vl = &root.add<VirtualList>(24.0f)
+                      .rows([](Widget& parent) -> Widget& { return *makeRow(parent, 0, false).idx->parent(); },
+                            [](Widget& row, int i) { // children: index label, text label, chip
+                                static_cast<Label&>(*row.children()[0]).text(std::to_string(i));
+                                static_cast<Label&>(*row.children()[1]).text(rowText(i, false));
+                                static_cast<Panel&>(*row.children()[2]).background(kPalette[i % 6]);
+                            })
+                      .count(logical);
+        });
         b.run("7", "Scroll virtual list x240 (" + std::to_string(logical) + " logical)", 240,
               [&](int i) { vl->setScrollY((i + 1) * 13.0f); }, s);
         b.clear();

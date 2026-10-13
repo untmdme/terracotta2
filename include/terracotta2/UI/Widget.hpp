@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 #include <yoga/Yoga.h>
 #include "include/core/SkCanvas.h"
@@ -18,6 +19,16 @@ enum class MouseButton { Left, Right, Middle };
 
 // Modifier bit flags (KeyEvent::mods, MouseEvent::mods).
 enum Mod : int { ModShift = 1, ModCtrl = 2, ModAlt = 4, ModSuper = 8 /* Cmd on macOS, Win key on Windows */ };
+
+// Flexbox enums for the layout setters (same values as Yoga's, so they convert with a cast).
+enum class Direction { Column = YGFlexDirectionColumn, ColumnReverse = YGFlexDirectionColumnReverse,
+                       Row = YGFlexDirectionRow, RowReverse = YGFlexDirectionRowReverse };
+enum class Align { Auto = YGAlignAuto, Start = YGAlignFlexStart, Center = YGAlignCenter, End = YGAlignFlexEnd,
+                   Stretch = YGAlignStretch, Baseline = YGAlignBaseline };
+enum class Justify { Start = YGJustifyFlexStart, Center = YGJustifyCenter, End = YGJustifyFlexEnd,
+                     SpaceBetween = YGJustifySpaceBetween, SpaceAround = YGJustifySpaceAround, SpaceEvenly = YGJustifySpaceEvenly };
+enum class Edge { Left = YGEdgeLeft, Top = YGEdgeTop, Right = YGEdgeRight, Bottom = YGEdgeBottom,
+                  Horizontal = YGEdgeHorizontal, Vertical = YGEdgeVertical, All = YGEdgeAll };
 
 enum class KeyAction { Press, Release, Repeat };
 
@@ -53,14 +64,14 @@ struct KeyEvent {
 //   root.add<VBox>().padding(16).gap(8).build([](VBox& col) {
 //       col.add<Label>("Title").fontSize(26).weight(700);
 //       col.add<HBox>().gap(8).build([](HBox& row) {
-//           row.add<Button>("OK", [] { /* ... */ });
+//           row.add<Button>("OK").onClick([] { /* ... */ });
 //       });
 //   });
 //
 // Invalidation contract:
 //  - markLayoutDirty(): style/size changed. Bubbles to root; next frame re-runs Yoga.
 //    Widgets whose bounds change during layout are damaged automatically (old + new rect).
-//  - markPaintDirty(): visuals changed, geometry did not. Damages getBounds() only; no layout.
+//  - markPaintDirty(): visuals changed, geometry did not. Damages bounds() only; no layout.
 //  - invalidateRect(r): damage an arbitrary window-space rect (e.g. overlays, carets).
 // Antialiasing spills a faint fringe up to 1px past a shape's edge, so damage rects are grown
 // by kPaintOverflow and widgets within that distance of the damage are repainted.
@@ -99,8 +110,8 @@ public:
     Window* window() const;                    // walks to root; nullptr if detached
     bool isAncestorOf(const Widget* w) const;  // true for w == this too
 
-    YGNodeRef getYGNode() const { return m_yg_node; }
-    const SkRect& getBounds() const { return m_bounds; }
+    YGNodeRef yogaNode() const { return m_yg_node; } // escape hatch for Yoga styles the setters don't cover
+    const SkRect& bounds() const { return m_bounds; }
 
     // ---- invalidation ----
     void markLayoutDirty();
@@ -109,7 +120,7 @@ public:
     bool isLayoutDirty() const { return m_layout_dirty; }
 
     // ---- flex layout (Yoga). Chainable; each marks layout dirty. ----
-    template <class Self> Self& direction(this Self& s, YGFlexDirection v) { YGNodeStyleSetFlexDirection(s.m_yg_node, v); s.markLayoutDirty(); return s; }
+    template <class Self> Self& direction(this Self& s, Direction v) { YGNodeStyleSetFlexDirection(s.m_yg_node, YGFlexDirection(v)); s.markLayoutDirty(); return s; }
     template <class Self> Self& grow(this Self& s, float v) { YGNodeStyleSetFlexGrow(s.m_yg_node, v); s.markLayoutDirty(); return s; }
     template <class Self> Self& shrink(this Self& s, float v) { YGNodeStyleSetFlexShrink(s.m_yg_node, v); s.markLayoutDirty(); return s; }
     template <class Self> Self& basis(this Self& s, float v) { YGNodeStyleSetFlexBasis(s.m_yg_node, v); s.markLayoutDirty(); return s; }
@@ -120,15 +131,17 @@ public:
     template <class Self> Self& heightPercent(this Self& s, float v) { YGNodeStyleSetHeightPercent(s.m_yg_node, v); s.markLayoutDirty(); return s; }
     template <class Self> Self& minSize(this Self& s, float w, float h) { YGNodeStyleSetMinWidth(s.m_yg_node, w); YGNodeStyleSetMinHeight(s.m_yg_node, h); s.markLayoutDirty(); return s; }
     template <class Self> Self& maxSize(this Self& s, float w, float h) { YGNodeStyleSetMaxWidth(s.m_yg_node, w); YGNodeStyleSetMaxHeight(s.m_yg_node, h); s.markLayoutDirty(); return s; } // YGUndefined = none
+    template <class Self> Self& maxWidth(this Self& s, float v) { YGNodeStyleSetMaxWidth(s.m_yg_node, v); s.markLayoutDirty(); return s; }   // e.g. a readable line length
+    template <class Self> Self& maxHeight(this Self& s, float v) { YGNodeStyleSetMaxHeight(s.m_yg_node, v); s.markLayoutDirty(); return s; }
     template <class Self> Self& padding(this Self& s, float v) { YGNodeStyleSetPadding(s.m_yg_node, YGEdgeAll, v); s.markLayoutDirty(); return s; }
-    template <class Self> Self& padding(this Self& s, YGEdge e, float v) { YGNodeStyleSetPadding(s.m_yg_node, e, v); s.markLayoutDirty(); return s; }
+    template <class Self> Self& padding(this Self& s, Edge e, float v) { YGNodeStyleSetPadding(s.m_yg_node, YGEdge(e), v); s.markLayoutDirty(); return s; }
     template <class Self> Self& margin(this Self& s, float v) { YGNodeStyleSetMargin(s.m_yg_node, YGEdgeAll, v); s.markLayoutDirty(); return s; }
-    template <class Self> Self& margin(this Self& s, YGEdge e, float v) { YGNodeStyleSetMargin(s.m_yg_node, e, v); s.markLayoutDirty(); return s; }
+    template <class Self> Self& margin(this Self& s, Edge e, float v) { YGNodeStyleSetMargin(s.m_yg_node, YGEdge(e), v); s.markLayoutDirty(); return s; }
     template <class Self> Self& gap(this Self& s, float v) { YGNodeStyleSetGap(s.m_yg_node, YGGutterAll, v); s.markLayoutDirty(); return s; }
-    template <class Self> Self& alignItems(this Self& s, YGAlign v) { YGNodeStyleSetAlignItems(s.m_yg_node, v); s.markLayoutDirty(); return s; }
-    template <class Self> Self& alignSelf(this Self& s, YGAlign v) { YGNodeStyleSetAlignSelf(s.m_yg_node, v); s.markLayoutDirty(); return s; }
-    template <class Self> Self& justify(this Self& s, YGJustify v) { YGNodeStyleSetJustifyContent(s.m_yg_node, v); s.markLayoutDirty(); return s; }
-    template <class Self> Self& wrap(this Self& s, YGWrap v) { YGNodeStyleSetFlexWrap(s.m_yg_node, v); s.markLayoutDirty(); return s; }
+    template <class Self> Self& alignItems(this Self& s, Align v) { YGNodeStyleSetAlignItems(s.m_yg_node, YGAlign(v)); s.markLayoutDirty(); return s; }
+    template <class Self> Self& alignSelf(this Self& s, Align v) { YGNodeStyleSetAlignSelf(s.m_yg_node, YGAlign(v)); s.markLayoutDirty(); return s; }
+    template <class Self> Self& justify(this Self& s, Justify v) { YGNodeStyleSetJustifyContent(s.m_yg_node, YGJustify(v)); s.markLayoutDirty(); return s; }
+    template <class Self> Self& wrap(this Self& s, bool v = true) { YGNodeStyleSetFlexWrap(s.m_yg_node, v ? YGWrapWrap : YGWrapNoWrap); s.markLayoutDirty(); return s; }
     // Out of flow: positioned at (x, y) inside the parent's padding box, still sized by Yoga.
     template <class Self> Self& absolute(this Self& s, float x, float y) {
         YGNodeStyleSetPositionType(s.m_yg_node, YGPositionTypeAbsolute);
@@ -140,6 +153,10 @@ public:
     // Hidden widgets take no space (YGDisplayNone), are not painted and not hit.
     template <class Self> Self& visible(this Self& s, bool v) { s.setVisible(v); return s; }
     template <class Self> Self& clipChildren(this Self& s, bool v) { s.m_clip_children = v; return s; }
+    // Text shown in a small box near the pointer after it rests on this widget (or a descendant
+    // without its own tooltip) for theme().tooltip.delaySec. "" = none.
+    template <class Self> Self& tooltip(this Self& s, std::string text) { s.m_tooltip = std::move(text); return s; }
+    const std::string& tooltip() const { return m_tooltip; }
     bool isVisible() const { return m_visible; }
     bool clipsChildren() const { return m_clip_children; }
 
@@ -165,7 +182,7 @@ public:
     float childScale() const { return m_scale; }
     SkPoint childOrigin() const { return m_origin; }
     // This widget's coordinates (its bounds and events) <-> window coordinates. Identity unless an
-    // ancestor has a childTransform. Use mapToWindow(getBounds()) to place a popup next to a widget.
+    // ancestor has a childTransform. Use mapToWindow(bounds()) to place a popup next to a widget.
     SkPoint mapToWindow(SkPoint p) const;
     SkRect mapToWindow(const SkRect& r) const;
     SkPoint mapFromWindow(SkPoint p) const;
@@ -183,7 +200,7 @@ public:
     // onMouseMove/onMouseUp until the button is released.
     // Click = press and release over the same widget (button any). Delivered after onMouseUp,
     // bubbling from the deepest widget under both press and release points. No capture needed.
-    virtual bool onClick(const MouseEvent&) { return false; }
+    virtual bool onMouseClick(const MouseEvent&) { return false; }
     bool isHovered() const; // the pointer is over this widget or one of its descendants
     virtual bool onMouseDown(const MouseEvent&) { return false; }
     virtual bool onMouseUp(const MouseEvent&) { return false; }
@@ -196,6 +213,8 @@ public:
     virtual void onFocus() {}
     virtual void onBlur() {}
     virtual bool isFocusable() const { return false; }
+    virtual bool isTabStop() const { return isFocusable(); } // reached by Tab / Shift+Tab
+    bool isFocused() const;
     virtual Cursor cursor() const { return Cursor::Arrow; }
     // Deepest visible widget containing (x, y), children tested last-to-first. nullptr if outside.
     virtual Widget* hitTest(float x, float y);
@@ -221,6 +240,8 @@ protected:
     void setChildTransform(float scale, SkPoint origin);
     // Offset applied to all children's absolute positions (e.g. ScrollView: {0, -scrollY}).
     virtual SkPoint childOffset() const { return {0, 0}; }
+    // Accent outline just inside the bounds while focused by keyboard (Tab), not by mouse.
+    void drawFocusRing(SkCanvas* canvas, float cornerRadius) const;
     // Call when childOffset() changes: the next applyLayout re-walks this widget's children
     // even though Yoga reports no new layout. Damages are produced as children move.
     void relayoutChildren();
@@ -232,6 +253,7 @@ private:
     friend class Window;
     Widget* m_parent = nullptr;
     Window* m_host = nullptr; // set on the root widget only
+    std::string m_tooltip;
     std::vector<std::unique_ptr<Widget>> m_children;
     YGNodeRef m_yg_node;
     bool m_layout_dirty = true;

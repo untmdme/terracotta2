@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.30)
 
+# Standalone builds bootstrap the vcpkg submodule; as a subproject or vcpkg port the parent supplies the toolchain.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 # vcpkg is a git submodule pinned to vcpkg.json's builtin-baseline. Fetch it on first configure
 # and bootstrap it, so a plain clone builds with no manual setup.
 set(TC2_VCPKG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg")
@@ -38,6 +40,7 @@ else()
 endif()
 set(VCPKG_TARGET_TRIPLET "${TC2_DEFAULT_TRIPLET}" CACHE STRING "")
 set(VCPKG_HOST_TRIPLET "${TC2_DEFAULT_TRIPLET}" CACHE STRING "")
+endif()
 
 # The debug preset turns this on: RelWithDebInfo built unoptimized with debug info and asserts.
 option(TC2_UNOPTIMIZED "Build RelWithDebInfo without optimization" OFF)
@@ -99,4 +102,23 @@ elseif(WIN32)
     target_link_libraries(Terracotta2 PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib user32.lib shcore.lib)
 endif()
 
-add_subdirectory(app)
+option(TC2_BUILD_APPS "Build the example apps" ${PROJECT_IS_TOP_LEVEL})
+if(TC2_BUILD_APPS)
+    add_subdirectory(app)
+endif()
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+install(TARGETS Terracotta2 EXPORT Terracotta2Targets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT Terracotta2Targets NAMESPACE Terracotta2:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Terracotta2)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/Terracotta2Config.cmake
+"include(CMakeFindDependencyMacro)
+find_dependency(yoga CONFIG)
+find_dependency(unofficial-skia CONFIG)
+include(\"\${CMAKE_CURRENT_LIST_DIR}/Terracotta2Targets.cmake\")
+")
+write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/Terracotta2ConfigVersion.cmake
+    VERSION 0.1.0 COMPATIBILITY SameMinorVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Terracotta2Config.cmake ${CMAKE_CURRENT_BINARY_DIR}/Terracotta2ConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Terracotta2)

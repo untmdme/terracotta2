@@ -26,7 +26,9 @@
 #include "include/gpu/graphite/dawn/DawnGraphiteTypes.h"
 
 #include "ApplicationImpl.hpp"
+#include "../UI/Tooltip.hpp"
 #include "terracotta2/Theme/Theme.hpp"
+#include "terracotta2/UI/ScrollView.hpp"
 
 namespace Terracotta2 {
 
@@ -86,6 +88,7 @@ struct Window::Impl : platform::WindowEvents {
     Widget* captured = nullptr;
     Widget* pressed = nullptr; // hit widget at mouse-down, for onClick
     Widget* focused = nullptr;
+    bool focusVisible = false; // focused via Tab, not a click
     Widget* highlight = nullptr;
     Theme* theme = nullptr; // own theme, or null for appTheme()
     Cursor curCursor = Cursor::Arrow;
@@ -249,7 +252,7 @@ Window::Window(Application& app, const WindowDesc& desc) : m_impl(std::make_uniq
 
         d.root = std::make_unique<Widget>();
         d.root->m_host = this;
-        d.root->direction(YGFlexDirectionColumn);
+        d.root->direction(Direction::Column);
         const char* env = std::getenv("TC2_SHOW_DAMAGE");
         d.showDamage = env && env[0] == '1';
 
@@ -264,7 +267,7 @@ Window::Window(Application& app, const WindowDesc& desc) : m_impl(std::make_uniq
 
 Window::~Window() { m_impl->teardown(); }
 
-Widget* Window::getRootWidget() const { return m_impl->root.get(); }
+Widget* Window::root() const { return m_impl->root.get(); }
 Application& Window::app() const { return *m_impl->app; }
 const FrameStats& Window::lastFrameStats() const { return m_impl->stats; }
 float Window::contentScale() const { return m_impl->scale; }
@@ -325,8 +328,33 @@ void Window::setFocus(Widget* w) {
     if (w == d.focused) return;
     Widget* old = d.focused;
     d.focused = w;
-    if (old) old->onBlur();
-    if (w) w->onFocus();
+    if (old) { old->onBlur(); old->markPaintDirty(); } // focus ring
+    if (w) { w->onFocus(); w->markPaintDirty(); }
+}
+
+bool Window::focusVisible() const { return m_impl->focusVisible; }
+
+namespace {
+void collectTabStops(Widget* w, std::vector<Widget*>& out) {
+    if (!w->isVisible()) return;
+    if (w->isTabStop()) out.push_back(w);
+    for (auto& c : w->children()) collectTabStops(c.get(), out);
+}
+} // namespace
+
+void Window::focusNext(bool forward) {
+    Impl& d = *m_impl;
+    std::vector<Widget*> stops;
+    collectTabStops(d.root.get(), stops);
+    if (stops.empty()) return;
+    auto it = std::find(stops.begin(), stops.end(), d.focused);
+    size_t i = it == stops.end() ? (forward ? 0 : stops.size() - 1)
+                                 : (it - stops.begin() + (forward ? 1 : stops.size() - 1)) % stops.size();
+    Widget* w = stops[i];
+    d.focusVisible = true;
+    setFocus(w);
+    for (Widget* p = w->parent(); p; p = p->parent())
+        if (auto* sv = dynamic_cast<ScrollView*>(p)) sv->scrollToShow(w->bounds());
 }
 
 void Window::setTheme(Theme* t) {
@@ -338,9 +366,9 @@ Theme* Window::theme() const { return m_impl->theme; }
 void Window::setHighlight(Widget* w) {
     Impl& d = *m_impl;
     if (w == d.highlight) return;
-    if (d.highlight) addDamage(d.highlight->mapToWindow(d.highlight->getBounds()));
+    if (d.highlight) addDamage(d.highlight->mapToWindow(d.highlight->bounds()));
     d.highlight = w;
-    if (w) addDamage(w->mapToWindow(w->getBounds()));
+    if (w) addDamage(w->mapToWindow(w->bounds()));
 }
 Widget* Window::highlight() const { return m_impl->highlight; }
 
@@ -388,7 +416,7 @@ bool Window::renderFrame() {
     auto tLayout = std::chrono::steady_clock::now();
     auto msSince = [](auto t) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count(); };
     if (d.root->isLayoutDirty()) {
-        YGNodeCalculateLayout(d.root->getYGNode(), d.logical.width(), d.logical.height(), YGDirectionLTR);
+        YGNodeCalculateLayout(d.root->yogaNode(), d.logical.width(), d.logical.height(), YGDirectionLTR);
         d.root->applyLayout(0, 0);
         d.root->m_layout_dirty = false;
         stats.layoutRan = true;
@@ -425,7 +453,7 @@ bool Window::renderFrame() {
         d.root->paint(canvas, r, stats.widgetsPainted);
         if (d.highlight) { // inside its bounds, so its own damage covers it
             SkPaint p;
-            const SkRect hb = d.highlight->mapToWindow(d.highlight->getBounds());
+            const SkRect hb = d.highlight->mapToWindow(d.highlight->bounds());
             p.setColor(SkColorSetARGB(40, 255, 0, 255));
             canvas->drawRect(hb, p);
             p.setStyle(SkPaint::kStroke_Style);
@@ -518,6 +546,7 @@ void Window::injectMouseMove(float x, float y) {
             if (w->onMouseMove(localTo(w, ev))) break;
             w = next;
         }
+        tooltip::hover(d.root.get(), d.hovered, {x, y});
     }
     d.updateCursor();
 }
@@ -539,12 +568,14 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
     if (auto hook = A.mouseHook; down && hook && hook(this, x, y, true)) return;
     MouseEvent ev{x, y, button, mods};
     if (down) {
+        tooltip::hide(d.root.get(), false);
         if (d.captured) return; // another button is mid-drag
         d.updateHover(x, y);
         Widget* target = d.root ? d.root->hitTest(x, y) : nullptr;
         d.pressed = target;
         Widget* f = target;
         while (f && !f->isFocusable()) f = f->parent();
+        d.focusVisible = false;
         setFocus(f);
         for (Widget* w = target; w;) {
             Widget* next = w->parent();
@@ -574,7 +605,7 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         while (w && !w->isAncestorOf(p)) w = w->parent();
         while (w) {
             Widget* next = w->parent();
-            if (w->onClick(localTo(w, ev))) break;
+            if (w->onMouseClick(localTo(w, ev))) break;
             w = next;
         }
         d.updateHover(x, y);
@@ -587,11 +618,13 @@ void Window::injectMouseLeave() {
     ThemeScope themeScope(d.theme);
     if (d.captured) return; // a drag keeps its target until release
     d.updateHover(-1, -1);
+    tooltip::hide(d.root.get(), true);
     d.updateCursor();
 }
 
 void Window::injectScroll(float dx, float dy) {
     ThemeScope themeScope(m_impl->theme);
+    tooltip::hide(m_impl->root.get(), false);
     for (Widget* w = m_impl->hovered; w;) {
         Widget* next = w->parent();
         if (w->onScroll(dx, dy)) break;
@@ -601,12 +634,14 @@ void Window::injectScroll(float dx, float dy) {
 
 void Window::injectKey(Key key, KeyAction action, int mods) {
     ThemeScope themeScope(m_impl->theme);
+    if (action == KeyAction::Press) tooltip::hide(m_impl->root.get(), false);
     KeyEvent ev{key, action, mods};
     for (Widget* w = m_impl->focused; w;) {
         Widget* next = w->parent();
-        if (w->onKey(ev)) break;
+        if (w->onKey(ev)) return;
         w = next;
     }
+    if (key == Key::Tab && action != KeyAction::Release) focusNext(!(mods & ModShift));
 }
 
 void Window::injectChar(uint32_t codepoint) {

@@ -6,7 +6,7 @@
 #include "terracotta2/Core/Application.hpp"
 #include "terracotta2/Core/Window.hpp"
 #include "terracotta2/Theme/Theme.hpp"
-#include "terracotta2/UI/Controls.hpp"
+#include "terracotta2/Terracotta2.hpp"
 
 namespace Terracotta2 {
 
@@ -22,7 +22,7 @@ static constexpr float kSplitRatio = 0.3f; // share of the new pane when docking
 class DockTabBar : public Widget {
 public:
     DockTabBar() {
-        direction(YGFlexDirectionRow);
+        direction(Direction::Row);
         height(theme().dock.tabHeight);
         shrink(0);
     }
@@ -37,9 +37,9 @@ public:
 class DockTabButton : public Widget {
 public:
     explicit DockTabButton(std::string title) {
-        direction(YGFlexDirectionRow);
-        alignItems(YGAlignCenter);
-        padding(YGEdgeHorizontal, theme().dock.tabPaddingX);
+        direction(Direction::Row);
+        alignItems(Align::Center);
+        padding(Edge::Horizontal, theme().dock.tabPaddingX);
         shrink(0);
         m_label = &add<Label>(std::move(title));
         m_label->color(theme().dock.tabTextInactive);
@@ -47,7 +47,7 @@ public:
 
     void setTitle(std::string t) { m_label->text(std::move(t)); }
     void onThemeChanged() override {
-        padding(YGEdgeHorizontal, theme().dock.tabPaddingX);
+        padding(Edge::Horizontal, theme().dock.tabPaddingX);
         m_label->color(m_active ? theme().dock.tabText : theme().dock.tabTextInactive);
     }
     void setActive(bool a) {
@@ -141,7 +141,7 @@ public:
     bool onMouseMove(const MouseEvent& e) override {
         if (!m_pressed) return false;
         auto* p = static_cast<DockNode*>(parent());
-        const SkRect& b = p->getBounds();
+        const SkRect& b = p->bounds();
         float sz = theme().dock.splitterSize;
         float avail = (m_horizontal ? b.width() : b.height()) - sz;
         if (avail <= 0) return true;
@@ -158,7 +158,7 @@ private:
 // ---------------------------------------------------------------- DockNode
 
 DockNode::DockNode() {
-    direction(YGFlexDirectionColumn);
+    direction(Direction::Column);
     grow(1.0f);
     shrink(1.0f);
     basis(0.0f);
@@ -177,7 +177,7 @@ void DockNode::ensureLeafChrome() {
     if (!isLeaf() || m_tabBar) return;
     m_tabBar = &add<DockTabBar>();
     m_contentArea = &add<Widget>();
-    m_contentArea->direction(YGFlexDirectionColumn);
+    m_contentArea->direction(Direction::Column);
     m_contentArea->grow(1.0f);
     m_contentArea->clipChildren(true);
 }
@@ -221,7 +221,7 @@ std::pair<DockNode*, DockNode*> DockNode::split(bool horizontal, float ratio, bo
 
     m_horizontal = horizontal;
     m_ratio = ratio;
-    direction(horizontal ? YGFlexDirectionRow : YGFlexDirectionColumn);
+    direction(horizontal ? Direction::Row : Direction::Column);
     m_first = pa;
     m_second = pb;
     adopt(std::move(a));
@@ -295,7 +295,7 @@ std::unique_ptr<Widget> DockNode::takeTab(int index, std::string* titleOut) {
 // ---------------------------------------------------------------- DockSpace
 
 DockSpace::DockSpace() {
-    direction(YGFlexDirectionColumn);
+    direction(Direction::Column);
     grow(1.0f);
     add<DockNode>();
 }
@@ -309,7 +309,7 @@ static DockSpace* findDockSpace(Widget* w) {
     return nullptr;
 }
 
-DockSpace* DockSpace::of(Window* window) { return window ? findDockSpace(window->getRootWidget()) : nullptr; }
+DockSpace* DockSpace::of(Window* window) { return window ? findDockSpace(window->root()) : nullptr; }
 
 // ---------------------------------------------------------------- drag session
 // One global session. Tab widgets only call beginTabDrag; everything after runs from
@@ -347,7 +347,7 @@ struct DockDrag {
     static void followTo(SkPoint screen) {
         SkPoint origin{0, 0}; // tab top-left inside the following window (0,0 until first layout)
         if (g.node && g.index >= 0 && g.index < g.node->tabCount()) {
-            const SkRect& b = g.node->m_tabs[g.index].button->getBounds();
+            const SkRect& b = g.node->m_tabs[g.index].button->bounds();
             origin = {b.left(), b.top()};
         }
         g.follow->setScreenPosition(screen - g.grab - origin);
@@ -358,7 +358,7 @@ struct DockDrag {
         DockNode* src = g.node;
         DockSpace* srcSpace = g.space;
         float w = 0, h = 0;
-        if (src->m_contentArea) { w = src->m_contentArea->getBounds().width(); h = src->m_contentArea->getBounds().height(); }
+        if (src->m_contentArea) { w = src->m_contentArea->bounds().width(); h = src->m_contentArea->bounds().height(); }
         w = std::max(w, 300.0f);
         h = std::max(h, 200.0f);
         std::string title;
@@ -459,7 +459,7 @@ static void redockAll(Window* win) {
     float best = -1;
     std::function<void(DockNode*)> largest = [&](DockNode* n) {
         if (!n->isLeaf()) { largest(n->first()); largest(n->second()); return; }
-        const SkRect& b = n->getBounds();
+        const SkRect& b = n->bounds();
         if (b.width() * b.height() > best) { best = b.width() * b.height(); target = n; }
     };
     largest(ms->rootNode());
@@ -480,14 +480,14 @@ DockNode* DockSpace::floatTab(std::string title, std::unique_ptr<Widget> content
     d.y = screenFrame.top();
     d.floating = true;
     Window* w = Application::get().createWindow(d);
-    DockNode* leaf = w->getRootWidget()->add<DockSpace>().rootNode();
+    DockNode* leaf = w->root()->add<DockSpace>().rootNode();
     leaf->addTab(std::move(title), std::move(content));
     w->setOnClose([w] { redockAll(w); });
     return leaf;
 }
 
 SkRect DockSpace::previewRect(DockNode* t, DropZone z) const {
-    const SkRect& b = t->getBounds();
+    const SkRect& b = t->bounds();
     switch (z) {
         case DropZone::Center: return b;
         case DropZone::Left: return SkRect::MakeLTRB(b.left(), b.top(), b.left() + b.width() * kSplitRatio, b.bottom());
@@ -515,7 +515,7 @@ std::pair<DockNode*, DockSpace::DropZone> DockSpace::dropTarget(float x, float y
         if (auto* n = dynamic_cast<DockNode*>(w); n && n->isLeaf()) { leaf = n; break; }
     if (!leaf) return {nullptr, DropZone::None};
 
-    const SkRect& b = leaf->getBounds();
+    const SkRect& b = leaf->bounds();
     if (b.width() <= 0 || b.height() <= 0) return {nullptr, DropZone::None};
     struct { float d; DropZone z; } edges[] = {
         {(x - b.left()) / b.width(), DropZone::Left},
@@ -567,7 +567,7 @@ void DockSpace::collapse(DockNode* emptyLeaf) {
     DockNode* S = P->m_first == emptyLeaf ? P->m_second : P->m_first;
     Widget* G = P->parent();
     size_t idx = G->indexOf(P);
-    float grow = YGNodeStyleGetFlexGrow(P->getYGNode());
+    float grow = YGNodeStyleGetFlexGrow(P->yogaNode());
     bool pWasFirst = false;
     auto* gNode = dynamic_cast<DockNode*>(G);
     if (gNode) pWasFirst = gNode->m_first == P;

@@ -40,7 +40,7 @@ public:
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
 
-    Widget* getRootWidget() const;
+    Widget* root() const;
     Application& app() const;
 
     bool needsFrame() const;  // damage pending, layout dirty, or animating
@@ -68,6 +68,10 @@ public:
     void addDamage(const SkRect& logicalRect);
     void setFocus(Widget* w);           // nullptr clears; calls onBlur/onFocus
     Widget* focusedWidget() const;
+    // Focus the next (or previous) tab stop in tree order, wrapping; scrolls it into view.
+    // Tab / Shift+Tab call this when the focused widget doesn't handle the key.
+    void focusNext(bool forward = true);
+    bool focusVisible() const;          // focus came from the keyboard: widgets draw a focus ring
     Widget* hoveredWidget() const;      // deepest widget under the pointer
     void releaseCapture();              // drop widget mouse capture (no onMouseUp delivered)
     void startAnimating(Widget* w);     // registers w for ticking; wakes the loop

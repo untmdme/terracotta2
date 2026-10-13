@@ -55,6 +55,22 @@ struct ScrollStyle {
     float wheelSpeed = 1.0f; // multiplier on platform scroll deltas
 };
 
+struct PopupStyle { // menus, dropdown lists, pickers (Overlay / PopupBox)
+    SkColor background = SkColorSetRGB(42, 42, 46);
+    SkColor border = SkColorSetRGB(70, 70, 76);
+    SkColor itemHover = SkColorSetARGB(160, 70, 110, 200);
+    float cornerRadius = 6.0f;
+    float itemHeight = 24.0f;
+};
+
+struct TooltipStyle {
+    SkColor background = SkColorSetRGB(58, 58, 64);
+    SkColor border = SkColorSetRGB(84, 84, 92);
+    SkColor text = SkColorSetRGB(232, 232, 236);
+    float fontSize = 12.0f;
+    float delaySec = 0.5f; // pointer at rest this long before it shows
+};
+
 struct Theme {
     SkColor globalBackground = SkColorSetRGB(20, 20, 20);
     SkColor panelBackground = SkColorSetRGB(35, 35, 35);
@@ -68,6 +84,8 @@ struct Theme {
     InputStyle input;
     DockStyle dock;
     ScrollStyle scroll;
+    PopupStyle popup;
+    TooltipStyle tooltip;
 };
 
 // The app theme (mutable). Defaults to darkTheme(). After changing it at runtime call

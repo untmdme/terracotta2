@@ -1,11 +1,13 @@
-#include "terracotta2/UI/Container.hpp"
+#include "terracotta2/UI/ScrollView.hpp"
+#include "terracotta2/Theme/Theme.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace Terracotta2 {
 
 ScrollView::ScrollView() {
-    direction(YGFlexDirectionColumn).grow(1.0f).basis(0.0f).shrink(1.0f).clipChildren(true);
-    YGNodeStyleSetOverflow(getYGNode(), YGOverflowScroll);
+    direction(Direction::Column).grow(1.0f).basis(0.0f).shrink(1.0f).clipChildren(true);
+    YGNodeStyleSetOverflow(yogaNode(), YGOverflowScroll);
 }
 
 float ScrollView::contentHeight() const {
@@ -13,13 +15,18 @@ float ScrollView::contentHeight() const {
     for (const auto& c : children()) {
         if (!c->isVisible()) continue;
         if (isManualLayout()) { bottom = std::max(bottom, c->frame().bottom()); continue; }
-        YGNodeRef n = c->getYGNode();
+        YGNodeRef n = c->yogaNode();
         bottom = std::max(bottom, YGNodeLayoutGetTop(n) + YGNodeLayoutGetHeight(n) + YGNodeLayoutGetMargin(n, YGEdgeBottom));
     }
-    return bottom + YGNodeLayoutGetPadding(getYGNode(), YGEdgeBottom);
+    return bottom + YGNodeLayoutGetPadding(yogaNode(), YGEdgeBottom);
 }
 
 float ScrollView::maxScroll() const { return std::max(0.0f, contentHeight() - m_bounds.height()); }
+
+void ScrollView::scrollToShow(const SkRect& r) {
+    if (r.top() < m_bounds.top()) setScrollY(m_scrollY - (m_bounds.top() - r.top()));
+    else if (r.bottom() > m_bounds.bottom()) setScrollY(m_scrollY + std::min(r.bottom() - m_bounds.bottom(), r.top() - m_bounds.top()));
+}
 
 void ScrollView::setScrollY(float y) {
     y = std::clamp(y, 0.0f, maxScroll());
