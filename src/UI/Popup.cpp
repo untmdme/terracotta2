@@ -45,23 +45,18 @@ Overlay& Overlay::of(Widget& w) {
     return root->add<Overlay>();
 }
 
+Window* Overlay::createWindow(Window& owner, const SkRect& anchor, float cornerRadius) {
+    const SkPoint screen = owner.toScreen({anchor.left(), anchor.top()});
+    Window* w = owner.app().createWindow({.title = "Popup", .width = 1, .height = 1, .x = screen.x(), .y = screen.y(), .popup = true,
+                                          .anchorHeight = anchor.height(), .owner = &owner, .cornerRadius = cornerRadius});
+    w->setTheme(owner.theme());
+    return w;
+}
+
 Widget& Overlay::host(const SkRect& anchor) {
     close();
-    Window* owner = window();
-    Application& app = owner->app();
-    WindowDesc desc;
-    desc.title = "Popup";
-    desc.popup = true;
-    desc.owner = owner;
-    const SkPoint screen = owner->toScreen({anchor.left(), anchor.top()});
-    desc.x = screen.x();
-    desc.y = screen.y();
-    desc.anchorHeight = anchor.height();
-    desc.width = desc.height = 1;
-    desc.cornerRadius = theme().popup.cornerRadius;
-    m_popup = app.createWindow(desc);
-    m_popup->setTheme(owner->theme());
-    Application::Impl& A = *app.m_impl;
+    m_popup = createWindow(*window(), anchor, theme().popup.cornerRadius);
+    Application::Impl& A = *window()->app().m_impl;
     A.popup = m_popup;
     A.closePopup = [this] { close(); };
     PopupHost& h = m_popup->root()->add<PopupHost>(*this);

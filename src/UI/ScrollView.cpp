@@ -43,16 +43,30 @@ bool ScrollView::onScroll(float , float dy) {
     return m_scrollY != before; 
 }
 
-SkRect ScrollView::thumbRect() const {
+SkRect ScrollView::thumbRect(const SkRect& track, float scroll, float content, float view) {
     const auto& st = theme().scroll;
-    const float content = contentHeight(), view = m_bounds.height();
     if (content <= view || view <= 0) return SkRect::MakeEmpty();
-    const float track = view - 2 * st.margin;
-    const float thumb = std::max(24.0f, track * view / content);
-    const float t = std::clamp(m_scrollY / (content - view), 0.0f, 1.0f);
-    const float top = m_bounds.top() + st.margin + t * (track - thumb);
-    return SkRect::MakeXYWH(m_bounds.right() - st.margin - st.thickness, top, st.thickness, thumb);
+    const float length = track.height() - 2 * st.margin;
+    const float thumb = std::max(24.0f, length * view / content);
+    const float t = std::clamp(scroll / (content - view), 0.0f, 1.0f);
+    const float top = track.top() + st.margin + t * (length - thumb);
+    return SkRect::MakeXYWH(track.right() - st.margin - st.thickness, top, st.thickness, thumb);
 }
+
+void ScrollView::drawThumb(SkCanvas* canvas, const SkRect& thumb, bool active) {
+    if (thumb.isEmpty()) return;
+    SkPaint p;
+    p.setAntiAlias(true);
+    p.setColor(active ? theme().scroll.thumbActive : theme().scroll.thumb);
+    canvas->drawRoundRect(thumb, thumb.width() * 0.5f, thumb.width() * 0.5f, p);
+}
+
+void ScrollView::reveal(Widget& w, const SkRect& r) {
+    for (Widget* p = w.parent(); p; p = p->parent())
+        if (auto* sv = dynamic_cast<ScrollView*>(p)) sv->scrollToShow(r);
+}
+
+SkRect ScrollView::thumbRect() const { return thumbRect(m_bounds, m_scrollY, contentHeight(), m_bounds.height()); }
 
 Widget* ScrollView::hitTest(float x, float y) {
     if (isVisible() && thumbRect().contains(x, y)) return this;
@@ -85,14 +99,7 @@ bool ScrollView::onMouseUp(const MouseEvent&) {
     return true;
 }
 
-void ScrollView::onDrawOver(SkCanvas* canvas) {
-    const SkRect thumb = thumbRect();
-    if (thumb.isEmpty()) return;
-    SkPaint p;
-    p.setAntiAlias(true);
-    p.setColor(m_dragGrabY >= 0 ? theme().scroll.thumbActive : theme().scroll.thumb);
-    canvas->drawRoundRect(thumb, thumb.width() * 0.5f, thumb.width() * 0.5f, p);
-}
+void ScrollView::onDrawOver(SkCanvas* canvas) { drawThumb(canvas, thumbRect(), m_dragGrabY >= 0); }
 
 void ScrollView::onLayout() { setScrollY(m_scrollY); }
 

@@ -57,6 +57,8 @@ public:
     SkSize measure(float maxWidth);
 
 private:
+    void restyle(); // text or style changed: reshape, re-measure, repaint
+    skia::textlayout::Paragraph& paragraph(float width); // shaped and laid out at `width`, cached
     std::string m_text;
     float m_fontSize;
     int m_weight;

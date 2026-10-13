@@ -1329,13 +1329,13 @@ public:
         const auto now = Clock::now();
         m_times.push_back(now);
         while (now - m_times.front() > std::chrono::seconds(1)) m_times.erase(m_times.begin());
-        m_cpu += f.cpuMs, m_layout += f.layoutMs, m_paint += f.paintMs, m_painted += f.widgetsPainted, m_draws += f.drawCalls, ++m_frames;
+        m_cpu += f.cpuMs, m_layout += f.layoutMs, m_paint += f.paintMs, m_painted += f.widgetsPainted, ++m_frames;
         if (now - m_shown < std::chrono::milliseconds(500)) return;
         m_shown = now;
         const double n = m_frames;
-        set(m_frame, fmt("%zu fps   cpu %.2f ms   layout %.2f   paint %.2f   %.0f draw calls   %.0f of %d widgets painted", m_times.size(),
-                         m_cpu / n, m_layout / n, m_paint / n, m_draws / n, m_painted / n, m_widgets));
-        m_cpu = m_layout = m_paint = m_painted = m_draws = 0;
+        set(m_frame, fmt("%zu fps   cpu %.2f ms   layout %.2f   paint %.2f   %.0f of %d widgets painted", m_times.size(),
+                         m_cpu / n, m_layout / n, m_paint / n, m_painted / n, m_widgets));
+        m_cpu = m_layout = m_paint = m_painted = 0;
         m_frames = 0;
     }
 
@@ -1358,7 +1358,7 @@ private:
     Label *m_scene, *m_view, *m_frame;
     std::vector<Clock::time_point> m_times; // presents in the last second
     Clock::time_point m_shown{};
-    double m_cpu = 0, m_layout = 0, m_paint = 0, m_painted = 0, m_draws = 0;
+    double m_cpu = 0, m_layout = 0, m_paint = 0, m_painted = 0;
     int m_frames = 0, m_widgets = 0;
 };
 
@@ -1556,11 +1556,11 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
     };
     drain();
     const double winArea = win->size().width() * win->size().height();
-    std::printf("\n%-38s %6s %15s %15s %15s %8s %8s %8s %6s\n", "scenario (median / p95 ms)", "frames", "cpu", "layout", "paint", "mut",
-                "widgets", "draws", "dmg%");
+    std::printf("\n%-38s %6s %15s %15s %15s %8s %8s %6s\n", "scenario (median / p95 ms)", "frames", "cpu", "layout", "paint", "mut",
+                "widgets", "dmg%");
     auto run = [&](const char* name, int steps, const std::function<void(int)>& step) {
         Series cpu, layout, paint, mut;
-        double widgets = 0, dmg = 0, draws = 0;
+        double widgets = 0, dmg = 0;
         for (int i = 0; i < steps; ++i) {
             const auto t0 = Clock::now();
             step(i);
@@ -1571,7 +1571,6 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
                 layout.v.push_back(f.layoutMs);
                 paint.v.push_back(f.paintMs);
                 widgets += f.widgetsPainted;
-                draws += f.drawCalls;
                 dmg += f.damageArea;
             }
             drain();
@@ -1583,8 +1582,8 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
             std::snprintf(b, sizeof b, "%6.2f /%6.2f", x.at(0.5), x.at(0.95));
             return std::string(b);
         };
-        std::printf("%-38s %6zu %15s %15s %15s %8.2f %8.0f %8.0f %6.1f\n", name, cpu.v.size(), pair(cpu).c_str(), pair(layout).c_str(),
-                    pair(paint).c_str(), mut.at(0.5), widgets / n, draws / n, dmg / n / winArea * 100);
+        std::printf("%-38s %6zu %15s %15s %15s %8.2f %8.0f %6.1f\n", name, cpu.v.size(), pair(cpu).c_str(), pair(layout).c_str(),
+                    pair(paint).c_str(), mut.at(0.5), widgets / n, dmg / n / winArea * 100);
     };
 
     run("playback, 1 frame per step", 300, [&](int i) { s.setTime((i + 1) / kFps, true); });

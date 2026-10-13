@@ -32,8 +32,6 @@
 
 namespace Terracotta2 {
 
-// DrawCounter.cpp: a canvas forwarding to `target` that counts draws into *count.
-std::unique_ptr<SkCanvas> makeCountingCanvas(SkCanvas* target, int* count);
 
 namespace {
 
@@ -380,8 +378,7 @@ void Window::focusNext(bool forward) {
     Widget* w = stops[i];
     d.focusVisible = true;
     setFocus(w);
-    for (Widget* p = w->parent(); p; p = p->parent())
-        if (auto* sv = dynamic_cast<ScrollView*>(p)) sv->scrollToShow(w->bounds());
+    ScrollView::reveal(*w, w->bounds());
 }
 
 void Window::setTheme(Theme* t) {
@@ -469,8 +466,7 @@ bool Window::renderFrame() {
     }
 
     auto tPaint = std::chrono::steady_clock::now();
-    const auto counting = makeCountingCanvas(d.skSurface->getCanvas(), &stats.drawCalls);
-    SkCanvas* canvas = counting.get();
+    SkCanvas* canvas = d.skSurface->getCanvas();
     canvas->save();
     canvas->scale(s, s);
     // Each rect on its own: overlapping rects repaint their overlap twice, with identical result.

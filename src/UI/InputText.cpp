@@ -148,8 +148,7 @@ void InputText::scrollCaretIntoView() {
     const float lineH = lineHeight();
     const SkPoint o = textOrigin(lineH);
     const SkRect r = caretRect().makeOffset(o.x(), o.y()).makeOutset(0, theme().input.paddingX);
-    for (Widget* p = parent(); p; p = p->parent())
-        if (auto* sv = dynamic_cast<ScrollView*>(p)) sv->scrollToShow(r);
+    ScrollView::reveal(*this, r);
 }
 
 void InputText::onLayout() { scrollCaretIntoView(); } // the field grew while typing at its end
@@ -348,17 +347,7 @@ void InputText::onDraw(SkCanvas* canvas) {
     }
     // ponytail: no caret blink (zero idle frames); blink via animate() if wanted
     canvas->restore();
-    if (textH > visibleH && visibleH > 0) { // scroll position indicator, like ScrollView's thumb
-        const auto& sc = theme().scroll;
-        const float track = m_bounds.height() - 2 * sc.margin;
-        const float thumb = std::max(16.0f, track * visibleH / textH);
-        const float top = m_bounds.top() + sc.margin + (track - thumb) * (m_scrollY / (textH - visibleH));
-        SkPaint tp;
-        tp.setAntiAlias(true);
-        tp.setColor(sc.thumb);
-        canvas->drawRoundRect(SkRect::MakeXYWH(m_bounds.right() - sc.margin - sc.thickness, top, sc.thickness, thumb),
-                              sc.thickness / 2, sc.thickness / 2, tp);
-    }
+    if (m_multiline) ScrollView::drawThumb(canvas, ScrollView::thumbRect(m_bounds, m_scrollY, textH, visibleH));
 }
 
 } // namespace Terracotta2

@@ -168,24 +168,30 @@ int main() {
     Button& tipped = root.add<Button>("hover me").tooltip("Saves the file");
     root.add<Button>("plain");
     win->renderFrame();
-    auto tipShown = [&] { // the tip is its own popup window: root > box > label
+    auto tipWindow = [&]() -> Window* { // the tip is its own popup window: root > box > label
         for (Window* w : app.windows())
             if (w != win && !w->root()->children().empty() && !w->root()->children()[0]->children().empty())
                 if (auto* l = dynamic_cast<Label*>(w->root()->children()[0]->children()[0].get()); l && l->text() == "Saves the file")
-                    return true;
-        return false;
+                    return w;
+        return nullptr;
     };
-    // pumpOnce: ticks the delay, renders every window, destroys closed ones.
-    auto wait = [&] { for (int i = 0; i < 3; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(40)); app.pumpOnce(false); } };
+    auto tipShown = [&] { return tipWindow() != nullptr; };
+    // Frames tick the delay. No OS event polling here: the real mouse cursor would move the hover.
+    auto wait = [&] {
+        for (int i = 0; i < 3; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(40));
+            for (Window* w : app.windows()) w->renderFrame();
+        }
+    };
     const SkRect tb = tipped.bounds();
     win->injectMouseMove(tb.centerX(), tb.centerY());
     CHECK(!tipShown());
     wait();
     CHECK(tipShown());
-    for (Window* w : app.windows()) // in its own window, 20 px below the pointer
-        if (w != win) CHECK(std::abs(w->screenFrame().top() - (win->toScreen({0, tb.centerY()}).y() + 20)) < 1);
+    CHECK(std::abs(tipWindow()->screenFrame().top() - (win->toScreen({0, tb.centerY()}).y() + 20)) < 1); // 20 px below the pointer
     win->injectMouseButton(tb.centerX(), tb.centerY(), MouseButton::Left, true);
     win->injectMouseButton(tb.centerX(), tb.centerY(), MouseButton::Left, false);
+    app.pumpOnce(false); // destroys the closed tip window
     wait();
     CHECK(!tipShown()); // a press hides it; resting on the same widget doesn't bring it back
     win->injectMouseLeave();

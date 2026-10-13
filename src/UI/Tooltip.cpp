@@ -5,6 +5,7 @@
 #include "terracotta2/Core/Window.hpp"
 #include "terracotta2/Theme/Theme.hpp"
 #include "terracotta2/UI/Label.hpp"
+#include "terracotta2/UI/Popup.hpp"
 
 namespace Terracotta2::tooltip {
 namespace {
@@ -63,18 +64,8 @@ public:
 
 private:
     void show() {
-        Window* owner = window();
-        WindowDesc desc;
-        desc.title = "Tooltip";
-        desc.popup = true;
-        desc.owner = owner;
-        const SkPoint s = owner->toScreen(m_at);
-        desc.x = s.x();
-        desc.y = s.y();
-        desc.anchorHeight = 20; // below the pointer, clear of the cursor; above it at the screen bottom
-        desc.cornerRadius = 4;
-        m_tip = owner->app().createWindow(desc);
-        m_tip->setTheme(owner->theme());
+        // Anchored to a 20 px band at the pointer: below it, clear of the cursor; above it at the screen bottom.
+        m_tip = Overlay::createWindow(*window(), SkRect::MakeXYWH(m_at.x(), m_at.y(), 0, 20), 4);
         m_tip->root()->add<TipBox>(m_text);
     }
 

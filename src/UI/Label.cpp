@@ -36,82 +36,57 @@ void Label::onThemeChanged() {
 
 Label::~Label() = default;
 
+void Label::restyle() {
+    m_paragraph.reset();
+    markLayoutDirty();
+    markPaintDirty(); // the size may be unchanged while the content did change
+}
+
 Label& Label::text(std::string text) {
     m_text = std::move(text);
     m_selAnchor = m_selEnd = 0;
-    m_paragraph.reset();
-    markLayoutDirty();
-    markPaintDirty(); // size may be unchanged but content did change
+    restyle();
     return *this;
 }
-
-Label& Label::color(SkColor color) {
+Label& Label::color(SkColor color) { // same size: reshape and repaint, no layout
     m_color = color;
     m_themeColor = false;
     m_paragraph.reset();
     markPaintDirty();
     return *this;
 }
-
 Label& Label::fontSize(float size) {
     m_fontSize = size > 0 ? size : theme().label.fontSize;
     m_themeSize = size <= 0;
-    m_paragraph.reset();
-    markLayoutDirty();
-    markPaintDirty();
+    restyle();
     return *this;
 }
+Label& Label::weight(int weight) { m_weight = weight; restyle(); return *this; }
+Label& Label::lineHeight(float multiplier) { m_lineHeight = multiplier; restyle(); return *this; }
+Label& Label::font(std::string family) { m_family = std::move(family); restyle(); return *this; }
 
-Label& Label::weight(int weight) {
-    m_weight = weight;
-    m_paragraph.reset();
-    markLayoutDirty();
-    markPaintDirty();
-    return *this;
-}
-
-Label& Label::lineHeight(float multiplier) {
-    m_lineHeight = multiplier;
-    m_paragraph.reset();
-    markLayoutDirty();
-    markPaintDirty();
-    return *this;
-}
-
-Label& Label::font(std::string family) {
-    m_family = std::move(family);
-    m_paragraph.reset();
-    markLayoutDirty();
-    markPaintDirty();
-    return *this;
+Paragraph& Label::paragraph(float width) {
+    if (!m_paragraph) {
+        m_paragraph = makeParagraph(m_text, m_fontSize, m_color, m_weight, m_lineHeight, m_family);
+        m_layoutWidth = -1.0f;
+    }
+    if (m_layoutWidth != width) {
+        m_paragraph->layout(width);
+        m_layoutWidth = width;
+    }
+    return *m_paragraph;
 }
 
 SkSize Label::measure(float maxWidth) {
-    if (!m_paragraph) {
-        m_paragraph = makeParagraph(m_text, m_fontSize, m_color, m_weight, m_lineHeight, m_family);
-        m_layoutWidth = -1.0f;
-    }
-    if (m_layoutWidth != maxWidth) {
-        m_paragraph->layout(maxWidth);
-        m_layoutWidth = maxWidth;
-    }
-    float intrinsic = std::ceil(m_paragraph->getMaxIntrinsicWidth());
-    float w = std::isinf(maxWidth) ? intrinsic : std::min(maxWidth, intrinsic);
-    return SkSize::Make(w, std::ceil(m_paragraph->getHeight()));
+    Paragraph& p = paragraph(maxWidth);
+    const float intrinsic = std::ceil(p.getMaxIntrinsicWidth());
+    return SkSize::Make(std::isinf(maxWidth) ? intrinsic : std::min(maxWidth, intrinsic), std::ceil(p.getHeight()));
 }
 
 void Label::onDraw(SkCanvas* canvas) {
-    if (!m_paragraph) {
-        m_paragraph = makeParagraph(m_text, m_fontSize, m_color, m_weight, m_lineHeight, m_family);
-        m_layoutWidth = -1.0f;
-    }
-    if (m_layoutWidth != m_bounds.width()) {
-        m_paragraph->layout(m_bounds.width());
-        m_layoutWidth = m_bounds.width();
-    }
-    if (m_selAnchor != m_selEnd)
-        paintSelection(canvas, *m_paragraph, m_text, m_selAnchor, m_selEnd, m_bounds.left(), m_bounds.top());
-    m_paragraph->paint(canvas, m_bounds.left(), m_bounds.top());
+    Paragraph& p = paragraph(m_bounds.width());
+    if (m_selAnchor != m_selEnd) paintSelection(canvas, p, m_text, m_selAnchor, m_selEnd, m_bounds.left(), m_bounds.top());
+    p.paint(canvas, m_bounds.left(), m_bounds.top());
 }
 
 Label& Label::selectable(bool on) {
@@ -132,8 +107,7 @@ std::string Label::selectedText() const {
 
 bool Label::onMouseDown(const MouseEvent& e) {
     if (!m_selectable || e.button != MouseButton::Left) return false; // bubble to the parent as before
-    measure(m_bounds.width()); // makes sure the paragraph exists and is laid out for hit-testing
-    size_t off = hitOffset(*m_paragraph, m_text, e.x - m_bounds.left(), e.y - m_bounds.top());
+    size_t off = hitOffset(paragraph(m_bounds.width()), m_text, e.x - m_bounds.left(), e.y - m_bounds.top());
     size_t a = off, b = off;
     if (isDoubleClick(this, e.x, e.y)) std::tie(a, b) = wordRange(m_text, off);
     if (a != m_selAnchor || b != m_selEnd) {

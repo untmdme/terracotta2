@@ -32,6 +32,10 @@ public:
 
     Widget* hitTest(float, float) override { return nullptr; }
 
+    // A bare popup window attached to `anchor` (owner's window coordinates), not registered as the
+    // open popup: it takes no keys and doesn't close on outside clicks. Tooltips use it.
+    static Window* createWindow(Window& owner, const SkRect& anchor, float cornerRadius);
+
 private:
     Widget& host(const SkRect& anchor);
     Window* m_popup = nullptr; // only compared after close; never dereferenced once closed
