@@ -689,7 +689,7 @@ int main() {
         theme().fontFamily = "Helvetica Neue";
 
         Window* window = app.createWindow({.title = "Terracotta2 - Layout & Text", .width = 1600, .height = 900, .minWidth = 800, .minHeight = 500});
-        DockSpace& dockSpace = window->root()->add<DockSpace>();
+        DockSpace& dockSpace = window->root()->add<DockSpace>().customFloatingTitlebar(); // native host, custom floating bars
 
         // left column | right column;  left column: tabbed top over console
         auto [leftPane, rightPane] = dockSpace.splitHorizontal(0.70f);

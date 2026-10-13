@@ -242,14 +242,13 @@ struct Window::Impl : platform::WindowEvents {
     void onChar(uint32_t cp) override {
         if (ready) self->injectChar(cp);
     }
-    // Custom titlebar: the point drags the window when the widget under it is inside a TitleBar and
-    // neither it nor anything between it and the bar takes input (focusable, a non-arrow cursor, or
-    // the caption buttons).
+    // Custom titlebar: the point drags the window when the widget under it is inside a drag area
+    // (TitleBar, dock tab bar) and nothing between it and that area blocks it (takes input).
     bool isCaption(float x, float y) override {
         if (!customTitlebar || !root) return false;
         for (Widget* w = root->hitTest(x, y); w; w = w->parent()) {
-            if (dynamic_cast<TitleBar*>(w)) return true;
-            if (w->isFocusable() || w->cursor() != Cursor::Arrow || dynamic_cast<WindowButtons*>(w)) return false;
+            if (w->blocksWindowDrag()) return false;
+            if (w->dragsWindow()) return true;
         }
         return false;
     }
@@ -264,7 +263,7 @@ struct Window::Impl : platform::WindowEvents {
         active = a;
         if (!root) return;
         for (auto& c : root->children()) // repaint title bars: their caption buttons dim
-            if (dynamic_cast<TitleBar*>(c.get())) c->markPaintDirty();
+            if (dynamic_cast<TitleBar*>(c.get()) || dynamic_cast<WindowButtons*>(c.get())) c->markPaintDirty();
     }
     void onCloseRequest() override {
         if (!ready) return;
@@ -329,6 +328,7 @@ Widget* Window::hoveredWidget() const { return m_impl->hovered; }
 Widget* Window::focusedWidget() const { return m_impl->focused; }
 
 bool Window::isFloating() const { return m_impl->floating; }
+bool Window::hasCustomTitlebar() const { return m_impl->customTitlebar; }
 void Window::setTitle(const std::string& title) { platform::setTitle(m_impl->native, title); }
 void Window::raise() { platform::raise(m_impl->native); }
 void Window::minimize() { platform::minimize(m_impl->native); }
@@ -471,11 +471,11 @@ bool Window::renderFrame() {
 
     auto tLayout = std::chrono::steady_clock::now();
     auto msSince = [](auto t) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count(); };
-    if (d.root->isLayoutDirty()) {
+    for (int pass = 0; pass < 2 && d.root->isLayoutDirty(); ++pass) { // second pass: onLayout() changed a style
         if (d.popup) d.fitPopup();
         else YGNodeCalculateLayout(d.root->yogaNode(), d.logical.width(), d.logical.height(), YGDirectionLTR);
         d.root->applyLayout(0, 0);
-        d.root->m_layout_dirty = false;
+        d.root->m_layout_dirty = YGNodeIsDirty(d.root->yogaNode());
         stats.layoutRan = true;
     }
     stats.layoutMs = msSince(tLayout);

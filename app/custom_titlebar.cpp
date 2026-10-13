@@ -8,7 +8,7 @@ using namespace Terracotta2;
 
 int main() {
     Application app;
-    Window* window = app.createWindow({.title = "Custom Title Bar", .width = 560, .height = 340, .minWidth = 320, .minHeight = 200, .minWidth = 320, .minHeight = 200, .customTitlebar = true});
+    Window* window = app.createWindow({.title = "Custom Title Bar", .width = 560, .height = 340, .minWidth = 320, .minHeight = 200, .customTitlebar = true});
 
     Label* status = nullptr;
     window->root()->add<TitleBar>().build([&](TitleBar& bar) {

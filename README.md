@@ -171,7 +171,7 @@ page.add<Slider>(0, 100).value(50).onChange([](float v) { /* ... */ });
 | `Canvas` | `Canvas(fn)` | `fn(canvas, bounds)` draws with Skia |
 | `DragNumber` | `DragNumber(get, set, min, max)` | Drag horizontally to edit a number. `refresh` re-reads `get` |
 | `ColorPicker` | `ColorPicker(get, set)` | HSV square, hue and alpha bars, hex field. `refresh` re-reads `get` |
-| `DockSpace` | `DockSpace()` | `splitHorizontal`, `splitVertical`, then `addTab` on the returned nodes. Tabs can be dragged into new windows |
+| `DockSpace` | `DockSpace()` | `splitHorizontal`, `splitVertical`, then `addTab` on the returned nodes, `customFloatingTitlebar()`. Tabs can be dragged into new windows (native title bar, or ImGui-style with the tab bar as title bar) |
 
 `DragNumber` and `ColorPicker` are editors bound to data that lives elsewhere, so they read and write through `get` and `set` functions instead of holding a value. Call `refresh()` when that data changes.
 

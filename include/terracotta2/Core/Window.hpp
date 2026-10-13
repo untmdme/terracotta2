@@ -48,6 +48,7 @@ public:
 
     // ---- OS window ----
     bool isFloating() const;
+    bool hasCustomTitlebar() const;          // WindowDesc::customTitlebar
     void setTitle(const std::string& title);
     SkRect screenFrame() const;              // content area, screen logical px
     void setScreenPosition(SkPoint topLeft); // content-area top-left, screen logical px

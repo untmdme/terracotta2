@@ -96,6 +96,10 @@ public:
 
     static DockSpace* of(Window* window); // the DockSpace in a window's tree (first found), or null
 
+    // Floating windows opened from this space have no native title bar: their tab bars are the
+    // title bar, ImGui-style (default: native). Inherited by the floating windows' own spaces.
+    DockSpace& customFloatingTitlebar(bool on = true) { m_customFloatingTitlebar = on; return *this; }
+
     // Opens a floating window (with its own DockSpace) holding one tab. Returns its leaf.
     template <typename T, typename... Args>
     T& floatTab(std::string title, SkRect screenFrame, Args&&... args) {
@@ -130,6 +134,7 @@ private:
     DockNode* m_dropNode = nullptr;
     DropZone m_dropZone = DropZone::None;
     SkRect m_preview = SkRect::MakeEmpty();
+    bool m_customFloatingTitlebar = false;
     // ponytail: drag-session state lives in DockSpace.cpp (one global drag at a time)
 };
 

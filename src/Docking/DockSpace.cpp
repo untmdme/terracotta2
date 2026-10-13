@@ -32,6 +32,20 @@ public:
         p.setColor(theme().dock.tabBarBackground);
         canvas->drawRect(m_bounds, p);
     }
+    // Custom-titlebar window (ImGui-style floating window): the tab bars are the title bar. Their
+    // empty parts drag the window, and the bars along the top edge leave room for the caption buttons.
+    bool dragsWindow() const override { return true; }
+    void onLayout() override {
+        Window* w = window();
+        const bool top = w && w->hasCustomTitlebar() && m_bounds.top() < 1;
+        const float l = top && m_bounds.left() < 1 ? kTrafficLightsWidth : 0;
+        const float r = top && m_bounds.right() > w->size().width() - 1 ? kWindowButtonsWidth : 0;
+        if (l != m_insetL) padding(Edge::Left, m_insetL = l);
+        if (r != m_insetR) padding(Edge::Right, m_insetR = r);
+    }
+
+private:
+    float m_insetL = 0, m_insetR = 0;
 };
 
 class DockTabButton : public Widget {
@@ -46,6 +60,7 @@ public:
     }
 
     void setTitle(std::string t) { m_label->text(std::move(t)); }
+    bool blocksWindowDrag() const override { return true; } // pressing a tab drags the tab
     void onThemeChanged() override {
         padding(Edge::Horizontal, theme().dock.tabPaddingX);
         m_label->color(m_active ? theme().dock.tabText : theme().dock.tabTextInactive);
@@ -479,8 +494,18 @@ DockNode* DockSpace::floatTab(std::string title, std::unique_ptr<Widget> content
     d.x = screenFrame.left();
     d.y = screenFrame.top();
     d.floating = true;
+    d.customTitlebar = m_customFloatingTitlebar;
     Window* w = Application::get().createWindow(d);
-    DockNode* leaf = w->root()->add<DockSpace>().rootNode();
+    DockSpace& space = w->root()->add<DockSpace>();
+    space.m_customFloatingTitlebar = m_customFloatingTitlebar;
+    if (d.customTitlebar && kWindowButtonsWidth > 0) { // over the top-right tab bar, which leaves room for it
+        WindowButtons& b = w->root()->add<WindowButtons>();
+        b.height(theme().dock.tabHeight);
+        YGNodeStyleSetPositionType(b.yogaNode(), YGPositionTypeAbsolute);
+        YGNodeStyleSetPosition(b.yogaNode(), YGEdgeTop, 0);
+        YGNodeStyleSetPosition(b.yogaNode(), YGEdgeRight, 0);
+    }
+    DockNode* leaf = space.rootNode();
     leaf->addTab(std::move(title), std::move(content));
     w->setOnClose([w] { redockAll(w); });
     return leaf;

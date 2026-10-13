@@ -11,11 +11,9 @@ namespace Terracotta2 {
 
 namespace {
 #ifdef __APPLE__
-constexpr float kBarHeight = 28;      // the native titlebar the traffic lights are centered in
-constexpr float kTrafficLights = 78;  // their width from the left edge
+constexpr float kBarHeight = 28; // the native titlebar the traffic lights are centered in
 #else
 constexpr float kBarHeight = 32;
-constexpr float kTrafficLights = 0;
 #endif
 
 // The icon font Windows draws its own caption buttons with: Segoe Fluent Icons on Windows 11,
@@ -35,7 +33,7 @@ sk_sp<SkTypeface> captionIcons() {
 class CaptionButton : public Widget {
 public:
     enum class Kind { Minimize, Maximize, Close };
-    explicit CaptionButton(Kind kind) : m_kind(kind) { size(46, kBarHeight); }
+    explicit CaptionButton(Kind kind) : m_kind(kind) { width(kWindowButtonsWidth / 3).alignSelf(Align::Stretch); } // as tall as the bar
     bool onMouseDown(const MouseEvent& e) override {
         if (e.button != MouseButton::Left) return false;
         m_pressed = true;
@@ -96,7 +94,7 @@ private:
 
 TitleBar::TitleBar() {
     height(kBarHeight).shrink(0).alignItems(Align::Center).gap(8);
-    padding(Edge::Left, kTrafficLights > 0 ? kTrafficLights : 12).padding(Edge::Right, kTrafficLights > 0 ? 12 : 0); // Windows: buttons flush right
+    padding(Edge::Left, kTrafficLightsWidth > 0 ? kTrafficLightsWidth : 12).padding(Edge::Right, kTrafficLightsWidth > 0 ? 12 : 0); // Windows: buttons flush right
 }
 
 void TitleBar::onDraw(SkCanvas* c) {

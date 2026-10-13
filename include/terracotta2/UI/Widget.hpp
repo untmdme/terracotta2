@@ -216,6 +216,10 @@ public:
     virtual bool isTabStop() const { return isFocusable(); } // reached by Tab / Shift+Tab
     bool isFocused() const;
     virtual Cursor cursor() const { return Cursor::Arrow; }
+    // Custom-titlebar windows: pressing on this widget, or on a child that doesn't block it, drags
+    // the window (TitleBar, dock tab bars). Widgets that take input block it.
+    virtual bool dragsWindow() const { return false; }
+    virtual bool blocksWindowDrag() const { return isFocusable() || cursor() != Cursor::Arrow; }
     // Deepest visible widget containing (x, y), children tested last-to-first. nullptr if outside.
     virtual Widget* hitTest(float x, float y);
 
