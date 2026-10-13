@@ -89,9 +89,12 @@ bool MenuBox::onKey(const KeyEvent& e) {
 
 } // namespace
 
-void openMenu(Widget& from, SkPoint at, const std::vector<std::string>& items, std::function<void(int)> onPick, int current) {
-    const SkSize expect = SkSize::Make(kMenuWidth, items.size() * theme().popup.itemHeight + 8);
-    auto& box = Overlay::of(from).open<MenuBox>(at, expect, current);
+void openMenu(Widget& from, const SkRect& anchor, const std::vector<std::string>& items, std::function<void(int)> onPick,
+              int current) {
+    Overlay& overlay = Overlay::of(from);
+    // `anchor` is in from's window; the Overlay may belong to another one (from inside a popup).
+    const SkPoint local = overlay.window()->toLocal(from.window()->toScreen({anchor.left(), anchor.top()}));
+    auto& box = overlay.open<MenuBox>(SkRect::MakeXYWH(local.x(), local.y(), anchor.width(), anchor.height()), current);
     box.minSize(kMenuWidth, 0);
     for (int i = 0; i < int(items.size()); ++i)
         box.add<MenuItem>(items[i], i == current, [onPick, i] { if (onPick) onPick(i); });
@@ -113,8 +116,8 @@ Dropdown& Dropdown::value(int index) {
 }
 
 void Dropdown::openList() {
-    const SkRect b = mapToWindow(m_bounds); // also right inside a zoomed canvas
-    openMenu(*this, {b.left(), b.bottom() + 2}, m_items, [this](int i) {
+    // Below the field (or above it near the bottom of the screen); also right inside a zoomed canvas.
+    openMenu(*this, mapToWindow(m_bounds).makeOutset(0, 2), m_items, [this](int i) {
         value(i);
         if (m_onChange) m_onChange(i);
     }, m_selected);

@@ -1,4 +1,5 @@
 #include "Tooltip.hpp"
+#include <utility>
 #include "include/core/SkPaint.h"
 #include "include/core/SkRRect.h"
 #include "terracotta2/Core/Window.hpp"
@@ -8,15 +9,36 @@
 namespace Terracotta2::tooltip {
 namespace {
 
-// One per window, a child of the root created on first hover. Never hit-tested, so it can't
-// steal the hover that keeps it open. The owner pointer is only compared, never dereferenced.
+// The tip itself: text on a box, the whole content of its popup window.
+class TipBox : public Widget {
+public:
+    explicit TipBox(const std::string& text) {
+        const auto& st = theme().tooltip;
+        padding(Edge::Horizontal, 8).padding(Edge::Vertical, 4).maxWidth(320);
+        add<Label>(text).fontSize(st.fontSize).color(st.text);
+    }
+    void onDraw(SkCanvas* c) override {
+        const auto& st = theme().tooltip;
+        SkPaint p;
+        p.setAntiAlias(true);
+        p.setColor(st.background);
+        c->drawRect(m_bounds, p); // the popup window's corners are rounded
+        p.setStyle(SkPaint::kStroke_Style);
+        p.setColor(st.border);
+        c->drawRRect(SkRRect::MakeRectXY(m_bounds.makeInset(0.5f, 0.5f), 4, 4), p);
+    }
+};
+
+// Per-window tooltip state: a hidden child of the root created on first hover, which runs the show
+// delay (animate) and owns the tip's popup window while it is up. The owner pointer is only compared,
+// never dereferenced.
 class Layer : public Widget {
 public:
     Layer() {
-        absolute(0, 0).padding(Edge::Horizontal, 8).padding(Edge::Vertical, 4).maxWidth(320);
+        absolute(0, 0);
         setVisible(false);
-        m_label = &add<Label>("");
     }
+    ~Layer() override { hide(true); }
     static Layer* find(Widget* root) {
         for (auto& c : root->children())
             if (auto* l = dynamic_cast<Layer*>(c.get())) return l;
@@ -34,42 +56,32 @@ public:
     }
     void hide(bool forget) {
         m_anim.stop();
-        if (isVisible()) visible(false);
+        if (m_tip) Application::get().closeWindow(std::exchange(m_tip, nullptr)); // get(): may run during shutdown
         if (forget) m_owner = nullptr;
     }
-
     Widget* hitTest(float, float) override { return nullptr; }
-    void onLayout() override { // keep inside the window, flipping above the pointer at the bottom edge
-        const SkSize win = window()->size();
-        const float x = std::max(0.0f, std::min(m_bounds.left(), win.width() - m_bounds.width()));
-        const float y = m_bounds.bottom() > win.height() ? std::max(0.0f, m_at.y() - 4 - m_bounds.height()) : m_bounds.top();
-        if (x != m_bounds.left() || y != m_bounds.top()) absolute(x, y);
-    }
-    void onDraw(SkCanvas* c) override {
-        const auto& st = theme().tooltip;
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setColor(st.background);
-        c->drawRRect(SkRRect::MakeRectXY(m_bounds, 4, 4), p);
-        p.setStyle(SkPaint::kStroke_Style);
-        p.setColor(st.border);
-        c->drawRRect(SkRRect::MakeRectXY(m_bounds.makeInset(0.5f, 0.5f), 4, 4), p);
-    }
 
 private:
     void show() {
-        const auto& st = theme().tooltip;
-        m_label->text(m_text).fontSize(st.fontSize).color(st.text);
-        absolute(m_at.x(), m_at.y() + 20); // below the cursor
-        Widget* root = parent();
-        if (root->children().back().get() != this) root->adopt(root->detach(this)); // above everything
-        visible(true);
+        Window* owner = window();
+        WindowDesc desc;
+        desc.title = "Tooltip";
+        desc.popup = true;
+        desc.owner = owner;
+        const SkPoint s = owner->toScreen(m_at);
+        desc.x = s.x();
+        desc.y = s.y();
+        desc.anchorHeight = 20; // below the pointer, clear of the cursor; above it at the screen bottom
+        desc.cornerRadius = 4;
+        m_tip = owner->app().createWindow(desc);
+        m_tip->setTheme(owner->theme());
+        m_tip->root()->add<TipBox>(m_text);
     }
 
-    Label* m_label;
     const Widget* m_owner = nullptr;
     std::string m_text;
     SkPoint m_at{0, 0};
+    Window* m_tip = nullptr; // its popup window while shown
 };
 
 } // namespace

@@ -2,6 +2,7 @@
 // Private OS layer. Implemented once per OS: Platform_mac.mm (Cocoa), Platform_win.cpp (Win32).
 // All coordinates are logical px. Screen space: origin top-left of the primary display, y down.
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 #include "dawn/webgpu_cpp.h"
@@ -32,8 +33,13 @@ struct WindowEvents {
 void init(); // once, from Application(): app object, menu (Cmd+Q), DPI awareness, window class
 void shutdown();
 
-// `owner`: main window for floating windows, else null. Floating windows use ordinary z-order.
+// `owner`: main window for floating windows, the owning window for popups, else null. Floating
+// windows use ordinary z-order. Popups (desc.popup) are created invisible; showPopup() reveals them.
 NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeWindow* owner);
+void showPopup(NativeWindow* w);              // without activating it or taking key focus
+void setContentSize(NativeWindow* w, SkSize logical);
+SkRect workArea(SkPoint screen);              // usable area (no menu bar / taskbar) of the display containing `screen`
+void setOnDeactivate(std::function<void()> fn); // the app stopped being the active app
 void destroyWindow(NativeWindow* w);
 wgpu::Surface createSurface(const wgpu::Instance& instance, NativeWindow* w);
 

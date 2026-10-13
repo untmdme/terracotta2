@@ -178,7 +178,7 @@ public:
     bool onMouseClick(const MouseEvent& e) override {
         if (e.button != MouseButton::Left) return false;
         const SkRect b = mapToWindow(m_bounds); // inside the zoomed editor
-        auto& box = Overlay::of(*this).open<PopupBox>({b.left(), b.bottom() + 2}, SkSize::Make(256, 232));
+        auto& box = Overlay::of(*this).open<PopupBox>(b.makeOutset(0, 2)); // below the swatch, or above it near the screen bottom
         box.padding(8);
         box.add<ColorPicker>([this] { return color(); }, [this](SkColor c) {
             float hsv[3];
@@ -790,7 +790,7 @@ public:
                     std::vector<std::string> names;
                     for (int t = 0; t < kNodeTypes; ++t) names.push_back(typeDef(NodeType(t)).name);
                     const SkRect b = m_add->mapToWindow(m_add->bounds());
-                    openMenu(*m_add, {b.left(), b.bottom() + 2}, names, [&s](int i) { s.addNode(NodeType(i), s.editor->viewCenter()); });
+                    openMenu(*m_add, b.makeOutset(0, 2), names, [&s](int i) { s.addNode(NodeType(i), s.editor->viewCenter()); });
                 }).ref(m_add).alignSelf(Align::Center); // Button aligns itself to the top by default
                 bar.add<Button>("Frame Selected").onClick([&s] { s.editor->frameSelection(); }).alignSelf(Align::Center);
                 bar.add<Button>("Frame All").onClick([&s] { s.editor->frameAll(); }).alignSelf(Align::Center);
@@ -1664,6 +1664,8 @@ void runBench(Application& app, Window* win, Studio& s, DockNode* centerSplit) {
         const MouseButton b = i % 2 ? MouseButton::Left : MouseButton::Right; // a left press outside closes it
         win->injectMouseButton(i % 2 ? x + 400 : x, y, b, true);
         win->injectMouseButton(i % 2 ? x + 400 : x, y, b, false);
+        // The menu is its own OS window: its creation and first frame count as this step's work ("mut").
+        if (Window* popup = Overlay::of(*s.editor).popupWindow()) popup->renderFrame();
     });
     { // drag Position 1's keys along its timeline track
         const SkRect lane = s.timeline->tracks().laneRect();

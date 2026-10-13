@@ -1,46 +1,47 @@
 #pragma once
-#include <algorithm>
-#include "include/core/SkSize.h"
+#include <utility>
 #include "terracotta2/UI/Box.hpp"
 
 namespace Terracotta2 {
 
-// Full-window layer above a window's UI for menus, dropdown lists and pickers. One per window,
-// created on first use. A press or scroll outside the popup, or Escape, closes it and is swallowed,
-// like a native menu. Opening takes keyboard focus; closing gives it back to where it was.
+class Window;
+
+// Opens popups (menus, dropdown lists, pickers) in their own borderless OS window above the app,
+// so they can extend past the window's edges like native menus. One per window, created on first
+// use; one popup open at a time per app (opening another closes the first). A press or scroll in
+// any other window, Escape, or switching to another app closes it. While it is open, keys typed in
+// any of the app's windows go to it; the opener keeps its focus.
 class Overlay : public Widget {
 public:
     Overlay();
+    ~Overlay() override;
+    // The window's Overlay. From a widget inside a popup: the Overlay that opened it.
     static Overlay& of(Widget& anyWidgetInWindow); // must be attached to a window
 
-    // Replaces the popup with a new T at `at` (window coords), kept inside the window given its
-    // expected size: it flips above `at` when there is no room below.
+    // Replaces the open popup with a new T (args go to its constructor) and returns it to fill. It
+    // opens just below `anchor` (in this Overlay's window coordinates), or above it when there is no
+    // room below, and takes the content's natural size. Anchor to a widget's bounds for a dropdown
+    // list, or to a point (SkRect::MakeXYWH(x, y, 0, 0)) for a context menu.
     template <class T, class... A>
-    T& open(SkPoint at, SkSize expect, A&&... args) {
-        clearChildren();
-        T& t = add<T>(std::forward<A>(args)...);
-        place(t, at, expect);
-        return t;
+    T& open(const SkRect& anchor, A&&... args) {
+        return host(anchor).template add<T>(std::forward<A>(args)...);
     }
-    void close(); // destroys the popup: never keep a pointer into it past close
-    bool isOpen() const { return isVisible(); }
+    void close(); // the popup window goes away at the end of this event loop iteration
+    bool isOpen() const { return m_popup != nullptr; }
+    Window* popupWindow() const { return m_popup; }
 
-    bool onMouseDown(const MouseEvent&) override;
-    bool onScroll(float, float) override;
-    bool onKey(const KeyEvent& e) override;
-    bool isFocusable() const override { return isOpen(); }
-    bool isTabStop() const override { return false; }
+    Widget* hitTest(float, float) override { return nullptr; }
 
 private:
-    void place(Widget& popup, SkPoint at, SkSize expect);
-    Widget* m_returnFocus = nullptr; // focused before open; only compared, never dereferenced unchecked
+    Widget& host(const SkRect& anchor);
+    Window* m_popup = nullptr; // only compared after close; never dereferenced once closed
 };
 
-// Styled popup box (theme().popup). Presses inside never reach the Overlay.
+// Styled popup box (theme().popup): background, border, padding. Fills the popup window, whose
+// corners are rounded to theme().popup.cornerRadius.
 class PopupBox : public VBox {
 public:
     PopupBox() { padding(4); }
-    bool onMouseDown(const MouseEvent&) override { return true; }
     void onDraw(SkCanvas* canvas) override;
 };
 

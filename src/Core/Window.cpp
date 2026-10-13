@@ -63,6 +63,9 @@ struct Window::Impl : platform::WindowEvents {
     Application::Impl* A = nullptr;
     platform::NativeWindow* native = nullptr;
     bool floating = false;
+    bool popup = false;       // WindowDesc::popup: sized to content, placed at `anchor`, shown after its first frame
+    bool popupShown = false;
+    SkRect anchor = SkRect::MakeEmpty(); // popup: what it is attached to, screen logical px
     bool ready = false; // OS callbacks arriving during construction are ignored
 
     wgpu::Surface surface;
@@ -135,8 +138,25 @@ struct Window::Impl : platform::WindowEvents {
         logical = lg;
         configureSurface();
         createBackbuffer();
-        if (root) root->size(logical.width(), logical.height()); // ponytail: fixed-size root; flags layout dirty
+        if (root && !popup) root->size(logical.width(), logical.height()); // ponytail: fixed-size root; flags layout dirty
         damage = {SkRect::MakeWH(logical.width(), logical.height())};
+    }
+
+    // Popup: lay the content out at its natural size, then resize the OS window to it and place it
+    // below the anchor, inside the display's work area (above the anchor if it would run off the
+    // bottom). Runs whenever the popup's layout is dirty, before painting.
+    void fitPopup() {
+        YGNodeCalculateLayout(root->yogaNode(), YGUndefined, YGUndefined, YGDirectionLTR);
+        const SkSize want = SkSize::Make(std::ceil(YGNodeLayoutGetWidth(root->yogaNode())),
+                                         std::ceil(YGNodeLayoutGetHeight(root->yogaNode())));
+        if (want.isEmpty() || want == logical) return;
+        const SkRect wa = platform::workArea({anchor.left(), anchor.top()});
+        const float x = std::clamp(anchor.left(), wa.left(), std::max(wa.left(), wa.right() - want.width()));
+        const float y = anchor.bottom() + want.height() <= wa.bottom() ? anchor.bottom()
+                                                                       : std::max(wa.top(), anchor.top() - want.height());
+        platform::setContentSize(native, want);
+        platform::setContentScreenPos(native, {x, y});
+        resize();
     }
 
     void teardown() {
@@ -238,8 +258,15 @@ Window::Window(Application& app, const WindowDesc& desc) : m_impl(std::make_uniq
     d.A = app.m_impl.get();
     Application::Impl& A = *d.A;
     try {
-        platform::NativeWindow* owner = (desc.floating && A.main) ? A.natives.at(A.main) : nullptr;
-        d.floating = owner != nullptr;
+        platform::NativeWindow* owner = nullptr;
+        if (desc.popup) {
+            if (Window* o = desc.owner ? desc.owner : A.main) owner = A.natives.at(o);
+        } else if (desc.floating && A.main) {
+            owner = A.natives.at(A.main);
+        }
+        d.popup = desc.popup;
+        d.anchor = SkRect::MakeXYWH(desc.x, desc.y, 0, desc.anchorHeight);
+        d.floating = !desc.popup && owner != nullptr;
         d.native = platform::createWindow(desc, &d, owner);
         if (!d.native) throw std::runtime_error("platform::createWindow failed");
         A.natives[this] = d.native;
@@ -416,7 +443,8 @@ bool Window::renderFrame() {
     auto tLayout = std::chrono::steady_clock::now();
     auto msSince = [](auto t) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count(); };
     if (d.root->isLayoutDirty()) {
-        YGNodeCalculateLayout(d.root->yogaNode(), d.logical.width(), d.logical.height(), YGDirectionLTR);
+        if (d.popup) d.fitPopup();
+        else YGNodeCalculateLayout(d.root->yogaNode(), d.logical.width(), d.logical.height(), YGDirectionLTR);
         d.root->applyLayout(0, 0);
         d.root->m_layout_dirty = false;
         stats.layoutRan = true;
@@ -517,6 +545,10 @@ bool Window::renderFrame() {
     stats.frameIndex++;
     d.stats = stats;
     const bool presented = ok();
+    if (presented && d.popup && !d.popupShown) { // first real content is on screen: reveal it
+        platform::showPopup(d.native);
+        d.popupShown = true;
+    }
     if (presented && d.onFrame) {
         auto f = d.onFrame; // the handler may replace itself
         f();
@@ -566,6 +598,11 @@ void Window::injectMouseButton(float x, float y, MouseButton button, bool down, 
         return;
     }
     if (auto hook = A.mouseHook; down && hook && hook(this, x, y, true)) return;
+    if (down && A.popup && A.popup != this) { // a press outside the open popup closes it, like a native menu
+        d.pressed = nullptr;
+        if (auto close = A.closePopup) close();
+        return;
+    }
     MouseEvent ev{x, y, button, mods};
     if (down) {
         tooltip::hide(d.root.get(), false);
@@ -625,6 +662,10 @@ void Window::injectMouseLeave() {
 void Window::injectScroll(float dx, float dy) {
     ThemeScope themeScope(m_impl->theme);
     tooltip::hide(m_impl->root.get(), false);
+    if (Application::Impl& A = *m_impl->A; A.popup && A.popup != this) {
+        if (auto close = A.closePopup) close();
+        return;
+    }
     for (Widget* w = m_impl->hovered; w;) {
         Widget* next = w->parent();
         if (w->onScroll(dx, dy)) break;
@@ -633,6 +674,8 @@ void Window::injectScroll(float dx, float dy) {
 }
 
 void Window::injectKey(Key key, KeyAction action, int mods) {
+    // A popup never becomes the key window: keys arrive at its owner and are passed on to it.
+    if (Window* p = m_impl->A->popup; p && p != this) return p->injectKey(key, action, mods);
     ThemeScope themeScope(m_impl->theme);
     if (action == KeyAction::Press) tooltip::hide(m_impl->root.get(), false);
     KeyEvent ev{key, action, mods};
@@ -645,6 +688,7 @@ void Window::injectKey(Key key, KeyAction action, int mods) {
 }
 
 void Window::injectChar(uint32_t codepoint) {
+    if (Window* p = m_impl->A->popup; p && p != this) return p->injectChar(codepoint);
     ThemeScope themeScope(m_impl->theme);
     for (Widget* w = m_impl->focused; w;) {
         Widget* next = w->parent();

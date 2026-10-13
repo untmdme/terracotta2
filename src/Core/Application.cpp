@@ -89,6 +89,10 @@ Application::Application() : m_impl(std::make_unique<Impl>()) {
         throw;
     }
     s_instance = this;
+    // Switching to another app closes an open popup, as native menus do.
+    platform::setOnDeactivate([&d] {
+        if (auto close = d.closePopup) close();
+    });
 }
 
 Application::~Application() {

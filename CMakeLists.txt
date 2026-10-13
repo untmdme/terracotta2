@@ -99,7 +99,7 @@ if(APPLE)
         "-framework Cocoa"
     )
 elseif(WIN32)
-    target_link_libraries(Terracotta2 PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib user32.lib shcore.lib)
+    target_link_libraries(Terracotta2 PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib user32.lib shcore.lib dwmapi.lib)
 endif()
 
 option(TC2_BUILD_APPS "Build the example apps" ${PROJECT_IS_TOP_LEVEL})

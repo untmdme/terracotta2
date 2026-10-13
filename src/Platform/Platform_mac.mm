@@ -222,6 +222,8 @@ struct NativeWindow {
 namespace {
 std::vector<NativeWindow*> g_windows;
 TCAppDelegate* g_delegate = nil; // NSApp.delegate is weak
+std::function<void()> g_onDeactivate;
+id g_deactivateObserver = nil;
 
 CGFloat primaryHeight() {
     NSArray<NSScreen*>* s = [NSScreen screens];
@@ -249,6 +251,12 @@ void init() {
         appItem.submenu = appMenu;
         [NSApp setMainMenu:bar];
 
+        g_deactivateObserver = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSApplicationDidResignActiveNotification
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification*) { if (g_onDeactivate) g_onDeactivate(); }];
+
         [NSApp finishLaunching];
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -258,6 +266,9 @@ void init() {
 }
 
 void shutdown() {
+    if (g_deactivateObserver) [[NSNotificationCenter defaultCenter] removeObserver:g_deactivateObserver];
+    g_deactivateObserver = nil;
+    g_onDeactivate = nullptr;
     g_windows.clear();
     [NSApp setDelegate:nil];
     g_delegate = nil;
@@ -272,7 +283,23 @@ NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeW
         NSRect content = NSMakeRect(centered ? 0 : desc.x, centered ? 0 : primaryHeight() - desc.y - desc.height,
                                     desc.width, desc.height);
         NSWindow* win;
-        if (owner) { // floating tool window
+        if (desc.popup) {
+            // Non-activating borderless panel above everything: clicks reach it while the owner
+            // stays the key window, so keyboard input keeps flowing through the owner.
+            NSPanel* p = [[NSPanel alloc] initWithContentRect:content
+                                                    styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                                                      backing:NSBackingStoreBuffered
+                                                        defer:NO];
+            p.floatingPanel = YES;
+            p.level = NSPopUpMenuWindowLevel; // after floatingPanel, which resets the level
+            p.becomesKeyOnlyIfNeeded = YES;
+            p.hidesOnDeactivate = NO; // the app closes its popups itself on deactivate
+            p.hasShadow = YES;
+            p.opaque = NO;            // transparent outside the rounded corners
+            p.backgroundColor = NSColor.clearColor;
+            p.alphaValue = 0;         // on screen (so Metal hands out drawables) but invisible until showPopup()
+            win = p;
+        } else if (owner) { // floating tool window
             NSPanel* p = [[NSPanel alloc] initWithContentRect:content styleMask:mask backing:NSBackingStoreBuffered defer:NO];
             // Ordinary z-order: can go behind the main window, never hides on deactivate.
             p.floatingPanel = NO;
@@ -291,8 +318,16 @@ NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeW
         view.events = events;
         win.contentView = view;
         win.delegate = view;
-        [win makeFirstResponder:view];
-        [win makeKeyAndOrderFront:nil];
+        if (desc.popup) {
+            if (desc.cornerRadius > 0) {
+                view.layer.cornerRadius = desc.cornerRadius;
+                view.layer.masksToBounds = YES;
+            }
+            [win orderFront:nil];
+        } else {
+            [win makeFirstResponder:view];
+            [win makeKeyAndOrderFront:nil];
+        }
 
         auto* nw = new NativeWindow;
         nw->window = win;
@@ -342,6 +377,29 @@ void setContentScreenPos(NativeWindow* w, SkPoint p) {
     NSPoint want = NSMakePoint(p.x(), primaryHeight() - p.y() - cr.size.height); // content bottom-left
     [w->window setFrameOrigin:NSMakePoint(want.x - (cr.origin.x - fr.origin.x), want.y - (cr.origin.y - fr.origin.y))];
 }
+
+void showPopup(NativeWindow* w) {
+    w->window.alphaValue = 1;
+    [w->window invalidateShadow]; // the shadow follows the (rounded) content, now drawn
+}
+
+void setContentSize(NativeWindow* w, SkSize s) {
+    const SkPoint topLeft = contentScreenPos(w);
+    [w->window setContentSize:NSMakeSize(s.width(), s.height())];
+    setContentScreenPos(w, topLeft); // Cocoa keeps the bottom-left fixed; keep the top-left instead
+}
+
+SkRect workArea(SkPoint screen) {
+    const CGFloat ph = primaryHeight();
+    const NSPoint p = NSMakePoint(screen.x(), ph - screen.y());
+    NSScreen* target = NSScreen.mainScreen;
+    for (NSScreen* s in NSScreen.screens)
+        if (NSPointInRect(p, s.frame)) { target = s; break; }
+    const NSRect v = target.visibleFrame; // minus menu bar and Dock
+    return SkRect::MakeXYWH((float)v.origin.x, (float)(ph - NSMaxY(v)), (float)v.size.width, (float)v.size.height);
+}
+
+void setOnDeactivate(std::function<void()> fn) { g_onDeactivate = std::move(fn); }
 
 void setTitle(NativeWindow* w, const std::string& title) {
     w->window.title = [NSString stringWithUTF8String:title.c_str()];

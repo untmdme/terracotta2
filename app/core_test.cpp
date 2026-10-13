@@ -134,16 +134,30 @@ int main() {
 
     root.clearChildren();
 
-    // Menus: a focused Dropdown opens with Down, arrows move, Enter picks, focus comes back.
+    // Menus: a focused Dropdown opens with Down, arrows move, Enter picks, focus stays on the dropdown.
     Dropdown& drop = root.add<Dropdown>(std::vector<std::string>{"one", "two", "three"}, 0);
     int picked = -1;
     drop.onChange([&](int i) { picked = i; });
     win->renderFrame();
     win->setFocus(&drop);
     key(Key::Down);                          // opens the list, "one" highlighted
-    CHECK(Overlay::of(drop).isOpen() && win->focusedWidget() != &drop);
+    CHECK(Overlay::of(drop).isOpen() && win->focusedWidget() == &drop); // the list is its own window; keys are forwarded to it
+    CHECK(Overlay::of(drop).popupWindow() != win);
     key(Key::Down); key(Key::Down); key(Key::Enter);
     CHECK(picked == 2 && drop.value() == 2 && !Overlay::of(drop).isOpen() && win->focusedWidget() == &drop);
+    // The popup window sizes itself to its content and sits just below the dropdown, on screen.
+    key(Key::Space);
+    Window* popup = Overlay::of(drop).popupWindow();
+    popup->renderFrame();
+    const SkRect pf = popup->screenFrame();
+    const SkPoint below = win->toScreen({drop.bounds().left(), drop.bounds().bottom()});
+    CHECK(pf.width() >= 180 && pf.height() > 3 * theme().popup.itemHeight && pf.height() < 4 * theme().popup.itemHeight + 20);
+    CHECK(std::abs(pf.left() - below.x()) < 1 && std::abs(pf.top() - (below.y() + 2)) < 1);
+    // A press in another window closes it and is swallowed: had it reached the dropdown, the list would reopen.
+    win->injectMouseButton(drop.bounds().centerX(), drop.bounds().centerY(), MouseButton::Left, true);
+    win->injectMouseButton(drop.bounds().centerX(), drop.bounds().centerY(), MouseButton::Left, false);
+    CHECK(!Overlay::of(drop).isOpen());
+    app.pumpOnce(false);                     // the closed popup window is destroyed at the end of the iteration
     key(Key::Space); key(Key::Escape);       // Escape closes without picking
     CHECK(picked == 2 && !Overlay::of(drop).isOpen() && win->focusedWidget() == &drop);
 
@@ -154,18 +168,22 @@ int main() {
     Button& tipped = root.add<Button>("hover me").tooltip("Saves the file");
     root.add<Button>("plain");
     win->renderFrame();
-    auto tipShown = [&] {
-        for (auto& c : root.children())
-            if (c->isVisible() && !c->children().empty())
-                if (auto* l = dynamic_cast<Label*>(c->children()[0].get()); l && l->text() == "Saves the file") return true;
+    auto tipShown = [&] { // the tip is its own popup window: root > box > label
+        for (Window* w : app.windows())
+            if (w != win && !w->root()->children().empty() && !w->root()->children()[0]->children().empty())
+                if (auto* l = dynamic_cast<Label*>(w->root()->children()[0]->children()[0].get()); l && l->text() == "Saves the file")
+                    return true;
         return false;
     };
-    auto wait = [&] { for (int i = 0; i < 3; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(40)); win->renderFrame(); } };
+    // pumpOnce: ticks the delay, renders every window, destroys closed ones.
+    auto wait = [&] { for (int i = 0; i < 3; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(40)); app.pumpOnce(false); } };
     const SkRect tb = tipped.bounds();
     win->injectMouseMove(tb.centerX(), tb.centerY());
     CHECK(!tipShown());
     wait();
     CHECK(tipShown());
+    for (Window* w : app.windows()) // in its own window, 20 px below the pointer
+        if (w != win) CHECK(std::abs(w->screenFrame().top() - (win->toScreen({0, tb.centerY()}).y() + 20)) < 1);
     win->injectMouseButton(tb.centerX(), tb.centerY(), MouseButton::Left, true);
     win->injectMouseButton(tb.centerX(), tb.centerY(), MouseButton::Left, false);
     wait();

@@ -177,7 +177,11 @@ page.add<Slider>(0, 100).value(50).onChange([](float v) { /* ... */ });
 
 **Tooltips.** Any widget takes `.tooltip("text")`. It shows after the pointer rests on the widget for `theme().tooltip.delaySec`, and a click hides it.
 
-**Menus and popups.** `openMenu(widget, at, items, onPick)` opens a menu at a window position, which works for context menus too. Arrow keys move through it, Enter picks and Escape closes. For your own popups, `Overlay::of(widget).open<PopupBox>(at, expectedSize)` returns a styled box to add widgets to. A click outside, a scroll or Escape closes it, and keyboard focus goes back to where it was.
+**Menus and popups.** Menus, dropdown lists and tooltips open in their own borderless OS windows, like native menus, so they can extend past the edge of the app window. A popup sizes itself to its content, opens below what it's attached to (or above it near the bottom of the screen), and stays on screen.
+
+- `openMenu(widget, anchor, items, onPick)` opens a menu. Pass the pointer position for a context menu, or a widget's bounds for a button's menu. Arrow keys move through it, Enter picks and Escape closes.
+- For your own popups, `Overlay::of(widget).open<PopupBox>(anchor)` returns a styled box to add widgets to.
+- A click or scroll anywhere else, Escape, or switching to another app closes the popup. While it's open, keys go to it, and the widget that opened it keeps keyboard focus.
 
 **Keyboard.** Tab and Shift+Tab move focus between buttons, fields and other controls, and scroll the focused one into view. Space or Enter clicks a focused button.
 

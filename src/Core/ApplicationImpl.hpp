@@ -30,6 +30,11 @@ struct Application::Impl {
 
     bool dragActive = false;
     std::function<void(SkPoint)> dragMove, dragRelease;
+
+    // The open popup window, if any (one at a time, like native menus). While it is open, a press or
+    // scroll in any other window closes it (and is swallowed), and keys typed in any window go to it.
+    Window* popup = nullptr;
+    std::function<void()> closePopup;
 };
 
 } // namespace Terracotta2

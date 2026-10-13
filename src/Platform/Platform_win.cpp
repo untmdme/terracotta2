@@ -18,7 +18,10 @@
 
 #include <windows.h>
 #include <windowsx.h> // GET_X_LPARAM / GET_Y_LPARAM
+#include <dwmapi.h>          // rounded popup corners (Windows 11)
+#include <shellscalingapi.h> // GetDpiForMonitor
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <cwchar>
@@ -41,11 +44,13 @@ struct NativeWindow {
 namespace {
 
 constexpr const wchar_t* kClassName = L"Terracotta2Window";
+constexpr const wchar_t* kPopupClassName = L"Terracotta2Popup"; // + CS_DROPSHADOW
 constexpr float kWheelPixels = 40.0f; // logical px per wheel notch (WHEEL_DELTA)
 
 HINSTANCE g_hinst = nullptr;
 DWORD g_mainThread = 0;
 std::vector<NativeWindow*> g_windows; // registry; also used to filter the z-order walk
+std::function<void()> g_onDeactivate;
 
 std::wstring widen(const std::string& s) {
     if (s.empty()) return {};
@@ -160,6 +165,14 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_ERASEBKGND:
             return 1;
+
+        case WM_MOUSEACTIVATE: // popups take clicks without becoming the active window
+            if (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_NOACTIVATE) return MA_NOACTIVATE;
+            break;
+
+        case WM_ACTIVATEAPP:
+            if (!wp && g_onDeactivate) g_onDeactivate();
+            break;
 
         case WM_CLOSE:
             if (live(w)) w->ev->onCloseRequest();
@@ -293,16 +306,37 @@ void init() {
     wc.hbrBackground = nullptr;
     wc.lpszClassName = kClassName;
     RegisterClassExW(&wc);
+    wc.style = CS_DROPSHADOW;
+    wc.hIcon = nullptr;
+    wc.lpszClassName = kPopupClassName;
+    RegisterClassExW(&wc);
 }
 
 void shutdown() {
+    g_onDeactivate = nullptr;
     UnregisterClassW(kClassName, g_hinst);
+    UnregisterClassW(kPopupClassName, g_hinst);
 }
 
-NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeWindow* /*owner*/) {
+NativeWindow* createWindow(const WindowDesc& desc, WindowEvents* events, NativeWindow* owner) {
     auto* w = new NativeWindow();
     w->ev = events;
     const std::wstring title = widen(desc.title);
+    if (desc.popup) {
+        // Owned (minimized/destroyed with its owner), no taskbar entry, never activated, above other windows.
+        w->hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST, kPopupClassName, title.c_str(),
+                                  WS_POPUP, 0, 0, 1, 1, owner ? owner->hwnd : nullptr, nullptr, g_hinst, w);
+        if (!w->hwnd) {
+            delete w;
+            return nullptr;
+        }
+        const DWORD round = 3; // DWMWCP_ROUNDSMALL; ignored before Windows 11
+        DwmSetWindowAttribute(w->hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &round, sizeof(round));
+        g_windows.push_back(w);
+        placeClient(w, desc.x, desc.y, std::max(1, desc.width), std::max(1, desc.height)); // hidden until showPopup()
+        w->ready = true;
+        return w;
+    }
     // Floating windows are unowned with a taskbar entry: ordinary z-order (they can go behind
     // the main window) and still reachable via the taskbar / Alt+Tab.
     const DWORD ex = 0;
@@ -379,6 +413,41 @@ void setContentScreenPos(NativeWindow* w, SkPoint p) {
     const int y = (int)std::lround(p.y() * w->scale) - (c.y - wr.top);
     SetWindowPos(w->hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
+
+void showPopup(NativeWindow* w) {
+    ShowWindow(w->hwnd, SW_SHOWNOACTIVATE);
+}
+
+void setContentSize(NativeWindow* w, SkSize s) {
+    const SkPoint p = contentScreenPos(w);
+    placeClient(w, p.x(), p.y(), (int)std::lround(s.width()), (int)std::lround(s.height()));
+}
+
+SkRect workArea(SkPoint screen) {
+    // Each monitor's work area in logical px (its physical rect / its own DPI scale); first one containing
+    // the point wins, else the primary. ponytail: same per-monitor logical mapping caveat as contentScreenPos.
+    struct Probe { SkPoint p; SkRect hit, primary; } probe{screen, SkRect::MakeEmpty(), SkRect::MakeEmpty()};
+    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR mon, HDC, LPRECT, LPARAM lp) -> BOOL {
+        auto& pr = *reinterpret_cast<Probe*>(lp);
+        MONITORINFO mi{sizeof(mi)};
+        GetMonitorInfoW(mon, &mi);
+        UINT dx = 96, dy = 96;
+        GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy);
+        const float s = (float)dx / 96.0f;
+        const RECT& m = mi.rcMonitor;
+        const RECT& r = mi.rcWork;
+        const SkRect work = SkRect::MakeLTRB(r.left / s, r.top / s, r.right / s, r.bottom / s);
+        if (mi.dwFlags & MONITORINFOF_PRIMARY) pr.primary = work;
+        if (SkRect::MakeLTRB(m.left / s, m.top / s, m.right / s, m.bottom / s).contains(pr.p.x(), pr.p.y())) {
+            pr.hit = work;
+            return FALSE;
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&probe));
+    return probe.hit.isEmpty() ? probe.primary : probe.hit;
+}
+
+void setOnDeactivate(std::function<void()> fn) { g_onDeactivate = std::move(fn); }
 
 void setTitle(NativeWindow* w, const std::string& title) {
     SetWindowTextW(w->hwnd, widen(title).c_str());

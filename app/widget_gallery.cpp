@@ -196,7 +196,7 @@ int main() {
             });
 
         // Dropdowns and menus: arrows move, Enter picks, Escape closes; focus returns to the opener.
-        section(page, "Dropdowns and menus", "Dropdown(items, selected).onChange(fn) and openMenu(widget, at, items, onPick). With the keyboard: Tab to the dropdown, Space to open, arrows, Enter.")
+        section(page, "Dropdowns and menus", "Dropdown(items, selected).onChange(fn) and openMenu(widget, anchor, items, onPick). With the keyboard: Tab to the dropdown, Space to open, arrows, Enter.")
             .build([](Panel& card) {
                 Label& status = card.add<Label>("Nothing picked yet").color(theme().textMuted);
                 card.add<HBox>().gap(12).alignItems(Align::Center).build([&](HBox& row) {
@@ -205,7 +205,7 @@ int main() {
                     Button& menuButton = row.add<Button>("Open menu");
                     menuButton.onClick([&status, b = &menuButton] {
                         const SkRect r = b->mapToWindow(b->bounds());
-                        openMenu(*b, {r.left(), r.bottom() + 2}, {"New", "Open...", "Save", "Save As..."},
+                        openMenu(*b, r.makeOutset(0, 2), {"New", "Open...", "Save", "Save As..."},
                                  [&status](int i) { status.text("Menu: item " + std::to_string(i)); });
                     });
                 });
