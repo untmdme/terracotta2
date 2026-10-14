@@ -8,7 +8,7 @@ Terracotta2 is a small retained-mode C++23 UI library. You describe a tree of wi
 
 Windows only repaint the regions that changed, so an idle app uses 0% CPU.
 
-**Status:** pre-1.0. The API still changes between versions. Supported platforms are macOS on Apple Silicon and Windows (x64, ARM64). Licensed under MIT (see `LICENSE`).
+**Status:** pre-1.0. The API still changes between versions. Supported platforms are macOS on Apple Silicon and Windows (x64). Licensed under MIT (see `LICENSE`).
 
 ## Building
 
@@ -26,7 +26,7 @@ Two presets, each with its own build directory:
 - `debug` (`build/debug`): your code at `-O0 -g` with asserts enabled. It is CMake's `RelWithDebInfo` configuration with debug flags, not `Debug`: vcpkg's Skia package drops its libraries and defines in a configuration named `Debug` when only release libraries are installed. On Windows the same preset uses `/Od /Zi`.
 - `release` (`build/release`): optimized, `NDEBUG`.
 
-Both link the same release-built Skia, Dawn and Yoga (one vcpkg install shared by both); debug builds of Skia and Dawn would take hours to build and run very slowly. The vcpkg triplet is picked from the host: `arm64-osx-release` on macOS, `x64-windows-static-md-release` or `arm64-windows-static-md` on Windows. Override it with `-DVCPKG_TARGET_TRIPLET=...`, but keep it static: a DLL build of Skia has no SVG module and does not export the skparagraph symbols.
+Both link the same release-built Skia, Dawn and Yoga (one vcpkg install shared by both); debug builds of Skia and Dawn would take hours to build and run very slowly. The vcpkg triplet is picked from the host: `arm64-osx-release` on macOS, `x64-windows-static-md-release` on Windows. Override it with `-DVCPKG_TARGET_TRIPLET=...`, but keep it static: a DLL build of Skia has no SVG module and does not export the skparagraph symbols.
 
 `build/<preset>/app/Core_Test` checks focus order, list virtualization, multi-line editing, menu keys and tooltips in a live window. `Node_Editor_Test` checks the node editor's model, and `Node_Editor --bench` drives the whole editor through scripted input.
 
@@ -56,6 +56,21 @@ target_link_libraries(My_App PRIVATE Terracotta2::Terracotta2)
 ```
 
 Then include everything with `#include <terracotta2/Terracotta2.hpp>`.
+
+## Prebuilt bundles
+
+Tagged releases (`v*`) ship one self-contained archive per platform: `Terracotta2-<version>-<triplet>.tar.gz` (macOS) or `.zip` (Windows). Each holds the static library, its headers, and Yoga, Skia and Dawn in a single prefix, so nothing has to be built or fetched. Unpack it and point CMake at it:
+
+```bash
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/Terracotta2-0.1.0-arm64-osx-release
+```
+
+```cmake
+find_package(Terracotta2 CONFIG REQUIRED)
+target_link_libraries(My_App PRIVATE Terracotta2::Terracotta2)
+```
+
+To make a bundle yourself: `cmake --preset release -DTC2_BUNDLE_DEPS=ON`, build, then `cpack` in `build/release`. The `bundle` GitHub workflow does this for every platform when you push a tag.
 
 ## Your first window
 

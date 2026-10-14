@@ -1,0 +1,43 @@
+name: bundle
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: true }
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.vcpkg-cache
+          save-always: true # keep the Skia/Dawn build even when a later step fails
+          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
+      - if: runner.os == 'macOS'
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && clang --version
+      - run: mkdir -p .vcpkg-cache # vcpkg refuses a binary cache dir that does not exist
+        shell: bash
+      - run: cmake --preset release -DTC2_BUNDLE_DEPS=ON -DTC2_BUILD_APPS=OFF
+        shell: bash
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: "vcpkg-logs-${{ matrix.os }}", path: vcpkg/buildtrees/*/*.log }
+      - run: cmake --build --preset release -j && cpack --config build/release/CPackConfig.cmake -B dist
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with: { name: "bundle-${{ matrix.os }}", path: dist/Terracotta2-* }
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: gh release upload "$GITHUB_REF_NAME" dist/Terracotta2-* --clobber || (gh release create "$GITHUB_REF_NAME" dist/Terracotta2-* --generate-notes)
+        shell: bash
+        env: { GH_TOKEN: "${{ github.token }}" }

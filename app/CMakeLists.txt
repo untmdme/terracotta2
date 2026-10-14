@@ -39,11 +39,7 @@ endif()
 # DXC (dxcompiler.dll + dxil.dll, from vcpkg's directx-dxc) and FXC (d3dcompiler_47.dll, from the
 # Windows SDK redist). Without them RequestDevice fails.
 if(WIN32)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64")
-        set(TC2_SDK_ARCH arm64)
-    else()
-        set(TC2_SDK_ARCH x64)
-    endif()
+    set(TC2_SDK_ARCH x64)
     find_file(TC2_D3DCOMPILER_DLL d3dcompiler_47.dll REQUIRED NO_DEFAULT_PATH
         PATHS "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/Redist/D3D/${TC2_SDK_ARCH}")
     set(TC2_VCPKG_BIN "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")

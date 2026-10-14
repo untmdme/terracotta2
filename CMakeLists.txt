@@ -30,11 +30,7 @@ set(CMAKE_TOOLCHAIN_FILE "${TC2_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CA
 # Static, release-only triplets for the host (a DLL Skia drops its SVG module and leaves
 # skparagraph symbols unexported); override with -DVCPKG_TARGET_TRIPLET=...
 if(CMAKE_HOST_WIN32)
-    if("$ENV{PROCESSOR_ARCHITECTURE}" STREQUAL "ARM64")
-        set(TC2_DEFAULT_TRIPLET arm64-windows-static-md)
-    else()
-        set(TC2_DEFAULT_TRIPLET x64-windows-static-md-release)
-    endif()
+    set(TC2_DEFAULT_TRIPLET x64-windows-static-md-release)
 else()
     set(TC2_DEFAULT_TRIPLET arm64-osx-release)
 endif()
@@ -112,11 +108,31 @@ install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT Terracotta2Targets NAMESPACE Terracotta2:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Terracotta2)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/Terracotta2Config.cmake
 "include(CMakeFindDependencyMacro)
+# A bundle (TC2_BUNDLE_DEPS) ships Yoga, Skia and Dawn in this same prefix.
+get_filename_component(_tc2_prefix \"\${CMAKE_CURRENT_LIST_DIR}/../../..\" ABSOLUTE)
+list(APPEND CMAKE_PREFIX_PATH \"\${_tc2_prefix}\")
 find_dependency(yoga CONFIG)
 find_dependency(unofficial-skia CONFIG)
+find_dependency(Dawn CONFIG)
 include(\"\${CMAKE_CURRENT_LIST_DIR}/Terracotta2Targets.cmake\")
 ")
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/Terracotta2ConfigVersion.cmake
     VERSION 0.1.0 COMPATIBILITY SameMinorVersion)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Terracotta2Config.cmake ${CMAKE_CURRENT_BINARY_DIR}/Terracotta2ConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Terracotta2)
+
+# Ready-to-ship bundle: `cmake --install` also copies the vcpkg-built Yoga/Skia/Dawn into the prefix,
+# so `cpack` yields one self-contained archive that find_package(Terracotta2) can use as-is.
+option(TC2_BUNDLE_DEPS "Install the vcpkg dependencies next to Terracotta2 and enable cpack" OFF)
+if(TC2_BUNDLE_DEPS)
+    install(DIRECTORY "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/" DESTINATION .
+        PATTERN "tools" EXCLUDE PATTERN "debug" EXCLUDE)
+    set(CPACK_PACKAGE_NAME Terracotta2)
+    set(CPACK_PACKAGE_VERSION 0.1.0)
+    set(CPACK_PACKAGE_FILE_NAME "Terracotta2-${CPACK_PACKAGE_VERSION}-${VCPKG_TARGET_TRIPLET}")
+    set(CPACK_GENERATOR TGZ)
+    if(WIN32)
+        set(CPACK_GENERATOR ZIP)
+    endif()
+    include(CPack)
+endif()
